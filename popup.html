@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Polymarket Live Assistant</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <!-- Live Event Banner -->
+    <div id="liveEventBanner" class="live-banner hidden">
+      <div class="live-indicator">🔴 LIVE EVENT DETECTED</div>
+      <div id="gameTitle" class="game-title"></div>
+    </div>
+    
+    <!-- Timing Indicator -->
+    <div id="timingIndicator" class="timing-indicator hidden">
+      <div class="indicator-dot" id="indicatorDot"></div>
+      <span id="timingText">Stable – little change happening</span>
+    </div>
+    
+    <!-- Markets Section -->
+    <div id="marketsSection" class="markets-section hidden">
+      <h3>🎯 Relevant Polymarket Markets</h3>
+      
+      <div id="marketsList" class="markets-list">
+        <!-- Markets will be dynamically inserted here -->
+      </div>
+    </div>
+    
+    <!-- Analytics Section -->
+    <div id="analyticsSection" class="analytics-section hidden">
+      <h3>📊 Real-Time Analytics</h3>
+      
+      <!-- Probability Shock Band -->
+      <div class="chart-container">
+        <h4>Probability Shock Band</h4>
+        <canvas id="probabilityChart"></canvas>
+      </div>
+      
+      <!-- P&L vs Time Chart -->
+      <div class="chart-container">
+        <h4>P&L vs Time</h4>
+        <canvas id="pnlChart"></canvas>
+      </div>
+    </div>
+    
+    <!-- No Live Event Message -->
+    <div id="noLiveEvent" class="no-live-event">
+      <p>No live event detected. Navigate to a live NBA game on nba.com</p>
+      <button id="demoBtn" class="demo-btn">🎮 Try Demo Mode</button>
+    </div>
+    
+    <!-- Settings Button -->
+    <div class="settings">
+      <button id="settingsBtn">⚙️ Settings</button>
+    </div>
+  </div>
+  
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@latest/dist/chart.umd.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>
+
