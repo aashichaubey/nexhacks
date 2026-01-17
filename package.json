@@ -1,0 +1,12 @@
+{
+  "name": "nexhacks",
+  "private": true,
+  "scripts": {
+    "demo": "bash scripts/dev-demo.sh"
+  },
+  "workspaces": [
+    "services/*",
+    "extension",
+    "shared"
+  ]
+}

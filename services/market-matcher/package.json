@@ -1,0 +1,11 @@
+{
+  "name": "@nexhacks/market-matcher",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@nexhacks/shared": "*",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  }
+}

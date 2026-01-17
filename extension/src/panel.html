@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexHacks</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">Live context</p>
+          <h1>Polymarket signals, right now.</h1>
+          <p class="sub">Assistive analytics from live audio + stream context.</p>
+        </div>
+        <div class="status">
+          <span class="dot"></span>
+          <span id="ws-status">Disconnected</span>
+        </div>
+      </header>
+
+      <section class="context" id="context-card">
+        <div>
+          <p class="eyebrow">Active context</p>
+          <h2 id="context-title">No live context detected yet.</h2>
+          <p class="sub" id="context-sub">Open a live game, news stream, or search.</p>
+        </div>
+        <div class="pill" id="context-tag">Idle</div>
+      </section>
+
+      <section class="live-feed">
+        <h2>Live Feed</h2>
+        <ul id="live-feed-list"></ul>
+      </section>
+
+      <section class="signals">
+        <h2>Signal Timeline</h2>
+        <ul id="signal-list"></ul>
+      </section>
+
+      <section class="charts">
+        <div class="section-head">
+          <h2>Payoff Curve</h2>
+          <span class="pill" id="payoff-label">No market yet</span>
+        </div>
+        <canvas id="payoff-chart" width="320" height="140"></canvas>
+      </section>
+
+      <section class="markets">
+        <div class="section-head">
+          <h2>Markets to Watch</h2>
+          <button id="refresh" class="ghost">Refresh</button>
+        </div>
+        <div id="market-list" class="market-grid"></div>
+      </section>
+    </div>
+
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>

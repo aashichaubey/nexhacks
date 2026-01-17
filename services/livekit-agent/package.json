@@ -1,0 +1,13 @@
+{
+  "name": "@nexhacks/livekit-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "@nexhacks/shared": "*",
+    "@livekit/rtc-node": "^0.12.0",
+    "livekit-client": "^2.9.3",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  }
+}
