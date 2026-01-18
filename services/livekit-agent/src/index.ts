@@ -62,13 +62,18 @@ async function connectLiveKit() {
         if (packet.transcript.trim().length === 0) {
           continue;
         }
+        
+        // Log transcription to terminal so you can see it
+        console.log(`[livekit-agent] 📝 Transcription: "${packet.transcript}"`);
+        console.log(`[livekit-agent]   Confidence: ${(packet.sttConfidence * 100).toFixed(1)}% | Source: ${packet.source}`);
+        
         emitPacket(packet);
       }
     });
 
     // Listen for track subscriptions
-    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication, participant: any) => {
-      if (track.kind === Track.Kind.Audio) {
+    room.on(RoomEvent.TrackSubscribed, (track: any, publication: any, participant: any) => {
+      if (track.kind === TrackKind.Audio) {
         console.log(
           `[livekit-agent] audio track subscribed from ${participant.identity} (${publication.trackSid})`
         );

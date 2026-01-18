@@ -14,14 +14,19 @@ function connectHub() {
   });
 
   ws.on("message", (data) => {
-    try {
-      const envelope = JSON.parse(data.toString()) as Envelope<TranscriptPacket>;
-      if (envelope.type !== "transcript_packet") {
-        return;
-      }
+  try {
+    const envelope = JSON.parse(data.toString()) as Envelope<TranscriptPacket>;
+    if (envelope.type !== "transcript_packet") {
+      return;
+    }
 
-      // TODO: Replace with Gemini API call + JSON schema validation.
-      const signal: Signal = {
+    // Log received transcription
+    const transcript = envelope.payload.transcript;
+    console.log(`[gemini-worker] 📥 Received transcription: "${transcript}"`);
+    console.log(`[gemini-worker]   Analyzing with Gemini...`);
+
+    // TODO: Replace with Gemini API call + JSON schema validation.
+    const signal: Signal = {
         id: uuidv4(),
         signalType: "momentum_shift",
         entity: "home_team",
@@ -39,6 +44,7 @@ function connectHub() {
       };
 
       ws?.send(JSON.stringify(out));
+      console.log(`[gemini-worker] ✅ Generated signal: ${signal.signalType} for ${signal.entity} (confidence: ${(signal.confidence * 100).toFixed(0)}%)`);
     } catch (err) {
       console.error("[gemini-worker] failed to parse message", err);
     }

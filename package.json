@@ -8,5 +8,8 @@
     "services/*",
     "extension",
     "shared"
-  ]
+  ],
+  "dependencies": {
+    "@livekit/rtc-node-darwin-arm64": "^0.13.24"
+  }
 }

@@ -147,7 +147,12 @@ function connectHub() {
         return;
       }
 
+      const signal = envelope.payload;
+      console.log(`[market-matcher] 📊 Searching markets for: ${signal.signalType} - ${signal.entity}`);
+      
       const markets = await searchMarkets(envelope.payload);
+      console.log(`[market-matcher] ✅ Found ${markets.length} matching markets`);
+      
       for (const market of markets) {
         const out: Envelope<MarketCandidate> = {
           type: "market",
@@ -155,6 +160,7 @@ function connectHub() {
           ts: new Date().toISOString()
         };
         ws?.send(JSON.stringify(out));
+        console.log(`[market-matcher]   📈 ${market.title} (prob: ${(market.probability * 100).toFixed(0)}%)`);
       }
     } catch (err) {
       console.error("[market-matcher] failed to handle signal", err);

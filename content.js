@@ -27,8 +27,12 @@ function detectLiveGame() {
     
     // Find video element
     const videoElement = document.querySelector('video');
+    console.log('[content] Video element found:', !!videoElement);
     if (videoElement) {
+      console.log('[content] Video src:', videoElement.src || videoElement.currentSrc);
       startLiveKitTranscription(videoElement);
+    } else {
+      console.warn('[content] ⚠ No video element found on page');
     }
     
     // Notify background script
@@ -60,20 +64,29 @@ function extractTeams() {
 
 // Initialize LiveKit transcription
 async function startLiveKitTranscription(videoElement) {
+  console.log('[content] Starting LiveKit transcription...');
   try {
-    // You'll need to set up LiveKit server and get credentials
-    const LIVEKIT_URL = 'wss://your-livekit-server.com';
-    const LIVEKIT_TOKEN = await getLiveKitToken(); // Implement token generation
+    // Get LiveKit credentials from Chrome storage or environment
+    const LIVEKIT_URL = await getStoredAPIKey('livekit_url') || 'wss://newhacks-wi12uwg4.livekit.cloud';
+    const LIVEKIT_TOKEN = await getLiveKitToken(); // Generate token for browser
+    
+    console.log('[content] LiveKit URL:', LIVEKIT_URL);
+    console.log('[content] LiveKit Token:', LIVEKIT_TOKEN ? 'Found (' + LIVEKIT_TOKEN.substring(0, 20) + '...)' : 'Missing');
     
     const { Room, RoomEvent, RemoteTrackPublication } = await import('https://unpkg.com/livekit-client@latest/dist/livekit-client.esm.js');
     
     liveKitRoom = new Room();
     
-    // Connect to LiveKit room
-    await liveKitRoom.connect(LIVEKIT_URL, LIVEKIT_TOKEN);
+    // Connect to LiveKit room (use same room name as agent: "nexhacks")
+    console.log('[content] Connecting to LiveKit room...');
+    await liveKitRoom.connect(LIVEKIT_URL, LIVEKIT_TOKEN, {
+      autoSubscribe: true,
+    });
+    console.log('[content] ✓ Connected to LiveKit room');
     
-    // Set up transcription
+    // Set up transcription listener
     liveKitRoom.on(RoomEvent.TranscriptionReceived, (transcription) => {
+      console.log('[content] 📝 Received transcription:', transcription.text);
       transcriptionText += transcription.text + ' ';
       
       // Analyze transcription with Gemini
@@ -81,17 +94,23 @@ async function startLiveKitTranscription(videoElement) {
     });
     
     // Capture audio from video element
+    console.log('[content] Capturing audio from video element...');
     const stream = videoElement.captureStream();
     const audioTracks = stream.getAudioTracks();
+    console.log('[content] Audio tracks found:', audioTracks.length);
     
     if (audioTracks.length > 0) {
+      console.log('[content] Publishing audio track to LiveKit...');
       await liveKitRoom.localParticipant.publishTrack(audioTracks[0], {
         source: 'microphone',
         name: 'game-audio'
       });
+      console.log('[content] ✓ Audio track published! LiveKit should now transcribe.');
+    } else {
+      console.warn('[content] ⚠ No audio tracks found in video stream');
     }
     
-    console.log('LiveKit transcription started');
+    console.log('[content] ✅ LiveKit transcription setup complete');
   } catch (error) {
     console.error('Error starting LiveKit transcription:', error);
     // Fallback: Use Web Speech API for development
@@ -299,8 +318,18 @@ async function getStoredAPIKey(key) {
 
 // Get LiveKit token (implement based on your LiveKit setup)
 async function getLiveKitToken() {
-  // This should call your backend to generate a LiveKit token
-  // For now, return a placeholder
+  // Try to get token from storage first
+  const storedToken = await getStoredAPIKey('livekit_token');
+  if (storedToken && storedToken !== 'placeholder-token') {
+    console.log('[content] Using LiveKit token from Chrome storage');
+    return storedToken;
+  }
+  
+  // TODO: Generate token on backend or use token from .env
+  // For now, you need to set it in Chrome storage:
+  // chrome.storage.sync.set({livekit_token: 'your-token-here'})
+  console.error('[content] ❌ LiveKit token not found in Chrome storage!');
+  console.error('[content] Set it with: chrome.storage.sync.set({livekit_token: "your-token-here"})');
   return 'placeholder-token';
 }
 
