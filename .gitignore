@@ -11,3 +11,6 @@ node_modules/
 
 # Platform-specific native modules (auto-installed per platform)
 **/@livekit/rtc-node-*/
+
+# Transcripts (may contain personal data)
+transcripts/

@@ -1,4 +1,7 @@
 import logging
+import json
+from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
@@ -19,6 +22,13 @@ load_dotenv()
 
 logger = logging.getLogger("transcriber")
 
+# Create transcripts directory if it doesn't exist
+TRANSCRIPTS_DIR = Path("transcripts")
+TRANSCRIPTS_DIR.mkdir(exist_ok=True)
+
+# File to store transcriptions (one JSON object per line)
+TRANSCRIPTS_FILE = TRANSCRIPTS_DIR / "transcriptions.jsonl"
+
 class Transcriber(Agent):
     def __init__(self):
         super().__init__(
@@ -30,6 +40,19 @@ class Transcriber(Agent):
         # Add any backend processing of transcripts here if needed
         user_transcript = new_message.text_content
         logger.info(f" -> {user_transcript}")
+
+        # Write transcription to file
+        transcription_entry = {
+            "timestamp": datetime.now().isoformat(),
+            "text": user_transcript,
+            "source": "assemblyai"
+        }
+        
+        # Append to JSONL file (one JSON object per line)
+        with open(TRANSCRIPTS_FILE, "a", encoding="utf-8") as f:
+            f.write(json.dumps(transcription_entry) + "\n")
+        
+        logger.info(f"Transcription saved to {TRANSCRIPTS_FILE}")
 
         # Needed to stop the agent's default conversational loop
         raise StopResponse()
