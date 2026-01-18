@@ -1,0 +1,118 @@
+:root {
+  --bg: #0c0f14;
+  --card: #141820;
+  --accent: #ff9d3a;
+  --muted: #8d93a1;
+  --text: #f4f6fb;
+  --stroke: rgba(255, 255, 255, 0.08);
+  --font: "Space Grotesk", "Avenir Next", sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  color: var(--text);
+  background: radial-gradient(circle at top, #1b2130, #0c0f14 60%);
+  min-height: 100vh;
+}
+
+.app {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 32px 20px 60px;
+  display: grid;
+  gap: 20px;
+}
+
+header {
+  display: grid;
+  gap: 8px;
+}
+
+.eyebrow {
+  text-transform: uppercase;
+  letter-spacing: 0.3em;
+  font-size: 11px;
+  color: var(--accent);
+  margin: 0;
+}
+
+h1 {
+  margin: 0;
+  font-size: 26px;
+}
+
+.sub {
+  margin: 0;
+  color: var(--muted);
+}
+
+.card {
+  background: var(--card);
+  border: 1px solid var(--stroke);
+  border-radius: 16px;
+  padding: 18px;
+  display: grid;
+  gap: 14px;
+}
+
+.row {
+  display: grid;
+  gap: 6px;
+}
+
+label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+input {
+  border-radius: 10px;
+  border: 1px solid var(--stroke);
+  background: rgba(255, 255, 255, 0.04);
+  padding: 10px 12px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.source {
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 14px;
+  word-break: break-all;
+}
+
+.actions {
+  display: flex;
+  gap: 10px;
+}
+
+button {
+  border: none;
+  background: var(--accent);
+  color: #131313;
+  font-weight: 600;
+  padding: 10px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+button[disabled] {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.note ol {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--muted);
+}

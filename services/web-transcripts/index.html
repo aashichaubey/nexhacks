@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexHacks Room Transcripts</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <p class="eyebrow">LiveKit Transcripts</p>
+        <h1>Room Metadata Viewer</h1>
+        <p class="sub">Paste a room token to view transcript metadata.</p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <label for="lk-url">LiveKit URL</label>
+          <input
+            id="lk-url"
+            type="text"
+            value="wss://hello-ngngab3h.livekit.cloud"
+          />
+        </div>
+        <div class="row">
+          <label for="lk-token">LiveKit Token</label>
+          <input id="lk-token" type="password" placeholder="Paste token" />
+        </div>
+        <div class="actions">
+          <button id="connect">Connect</button>
+          <button id="disconnect" disabled>Disconnect</button>
+        </div>
+        <div class="status" id="status">Idle</div>
+      </section>
+
+      <section class="card transcripts">
+        <h2>Transcripts</h2>
+        <div id="empty">No transcript metadata yet.</div>
+        <ul id="transcript-list"></ul>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>

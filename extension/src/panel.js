@@ -7,6 +7,9 @@ const refreshBtn = document.getElementById("refresh");
 const contextTitle = document.getElementById("context-title");
 const contextSub = document.getElementById("context-sub");
 const contextTag = document.getElementById("context-tag");
+const nflSummary = document.getElementById("nfl-summary");
+const nflList = document.getElementById("nfl-list");
+const nflSource = document.getElementById("nfl-source");
 const liveFeedList = document.getElementById("live-feed-list");
 const payoffChart = document.getElementById("payoff-chart");
 const payoffLabel = document.getElementById("payoff-label");
@@ -16,7 +19,8 @@ const port = chrome.runtime.connect();
 const state = {
   signals: [],
   markets: [],
-  transcripts: []
+  transcripts: [],
+  nfl: null
 };
 
 function renderLiveFeed() {
@@ -49,6 +53,50 @@ function renderSignals() {
       </div>
     `;
     signalList.appendChild(li);
+  }
+}
+
+function renderNflInsight() {
+  nflList.innerHTML = "";
+  if (!state.nfl) {
+    nflSummary.textContent = "No NFL matchup detected yet.";
+    nflSource.textContent = "Awaiting context";
+    return;
+  }
+  const insight = state.nfl;
+  const [teamA, teamB] = insight.teams ?? [];
+  if (!teamA || !teamB) {
+    nflSummary.textContent = "Unable to resolve teams from the query.";
+    nflSource.textContent = insight.source ?? "ESPN";
+    return;
+  }
+  nflSource.textContent = `${insight.source ?? "ESPN"} · ${new Date(
+    insight.generatedAt
+  ).toLocaleTimeString()}`;
+  nflSummary.textContent = `${teamA.name} vs ${teamB.name}`;
+  const recentA = insight.recent?.[teamA.abbreviation] ?? {};
+  const recentB = insight.recent?.[teamB.abbreviation] ?? {};
+  const headToHead = insight.headToHead ?? {};
+  const lean = insight.lean ?? {};
+
+  const items = [
+    `${teamA.abbreviation} recent: ${recentA.wins ?? 0}-${recentA.losses ?? 0} (avg diff ${recentA.avgPointDiff ?? 0})`,
+    `${teamB.abbreviation} recent: ${recentB.wins ?? 0}-${recentB.losses ?? 0} (avg diff ${recentB.avgPointDiff ?? 0})`,
+    `Head-to-head: ${teamA.abbreviation} ${headToHead[teamA.abbreviation] ?? 0} - ${teamB.abbreviation} ${headToHead[teamB.abbreviation] ?? 0}`,
+    `Lean: ${lean.team ?? "Too close"} (${Math.round((lean.confidence ?? 0) * 100)}% confidence)`
+  ];
+
+  if (headToHead.lastMeeting) {
+    items.push(
+      `Last meeting: ${headToHead.lastMeeting.winner} ${headToHead.lastMeeting.score}`
+    );
+  }
+
+  for (const text of items) {
+    const li = document.createElement("li");
+    li.className = "nfl-item";
+    li.textContent = text;
+    nflList.appendChild(li);
   }
 }
 
@@ -125,11 +173,13 @@ function applySnapshot(snapshot) {
   state.signals = snapshot.signals ?? [];
   state.markets = (snapshot.markets ?? []).slice(0, 4);
   state.transcripts = snapshot.transcripts ?? [];
+  state.nfl = snapshot.nfl ?? state.nfl;
   if (snapshot.wsStatus) {
     wsStatus.textContent = snapshot.wsStatus;
   }
   renderContext(snapshot.context ?? null);
   renderSignals();
+  renderNflInsight();
   renderMarkets();
   renderLiveFeed();
   renderPayoff(state.markets);
@@ -159,6 +209,10 @@ port.onMessage.addListener((message) => {
   }
   if (message.type === "context") {
     renderContext(message.payload);
+  }
+  if (message.type === "nfl_insight") {
+    state.nfl = message.payload;
+    renderNflInsight();
   }
   if (message.type === "ws_status") {
     wsStatus.textContent = message.payload;

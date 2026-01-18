@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>NexHacks Web Capture</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main class="app">
+      <header>
+        <p class="eyebrow">LiveKit Web Capture</p>
+        <h1>Stream browser audio to LiveKit</h1>
+        <p class="sub">
+          Open the hardcoded YouTube source, then capture the tab audio and
+          publish it to LiveKit.
+        </p>
+      </header>
+
+      <section class="card">
+        <div class="row">
+          <label for="lk-url">LiveKit URL</label>
+          <input
+            id="lk-url"
+            type="text"
+            value="wss://hello-ngngab3h.livekit.cloud"
+          />
+        </div>
+        <div class="row">
+          <label for="lk-token">LiveKit Token</label>
+          <input id="lk-token" type="password" placeholder="Paste token" />
+        </div>
+        <div class="row">
+          <label>Source URL</label>
+          <a class="source" href="https://youtube.com/watch?v=TPcHcYdBEw4&feature=onebox" target="_blank" rel="noreferrer">
+            https://youtube.com/watch?v=TPcHcYdBEw4&feature=onebox
+          </a>
+        </div>
+        <div class="actions">
+          <button id="start">Start capture</button>
+          <button id="stop" disabled>Stop</button>
+        </div>
+        <div class="status" id="status">Idle</div>
+      </section>
+
+      <section class="card note">
+        <h2>How to use</h2>
+        <ol>
+          <li>Open the YouTube link in a new tab.</li>
+          <li>Paste a LiveKit token (room + identity).</li>
+          <li>Click Start capture and select the YouTube tab with audio.</li>
+        </ol>
+      </section>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
