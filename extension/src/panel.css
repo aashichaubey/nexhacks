@@ -81,7 +81,8 @@ h1 {
 
 .signals,
 .markets,
-.market-analytics {
+.market-analytics,
+.pnl-dashboard {
   background: var(--card);
   border: 1px solid var(--stroke);
   border-radius: 16px;
@@ -375,6 +376,95 @@ h2 {
   text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
 }
 
+.volatility-indicator {
+  margin-top: 12px;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.volatility-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.volatility-label {
+  font-size: 11px;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.volatility-badge {
+  padding: 3px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.volatility-badge-muted {
+  background: rgba(143, 150, 163, 0.2);
+  color: var(--muted);
+}
+
+.volatility-badge-calm {
+  background: rgba(60, 242, 195, 0.2);
+  color: var(--accent-2);
+}
+
+.volatility-badge-moderate {
+  background: rgba(255, 138, 43, 0.2);
+  color: var(--accent);
+}
+
+.volatility-badge-high {
+  background: rgba(255, 200, 43, 0.2);
+  color: #ffc82b;
+}
+
+.volatility-badge-shock {
+  background: rgba(255, 107, 107, 0.25);
+  color: #ff6b6b;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.volatility-stats {
+  font-size: 11px;
+  color: var(--muted);
+  margin-bottom: 6px;
+}
+
+.volatility-stat {
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.volatility-recommendation {
+  font-size: 12px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text);
+  line-height: 1.4;
+}
+
+.volatility-indicator.volatility-shock .volatility-recommendation {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
 
 .pnl-numbers {
   display: grid;
@@ -575,6 +665,68 @@ h2 {
   color: var(--text);
 }
 
+.pnl-compact-card {
+  border-radius: 14px;
+  padding: 14px;
+  background: linear-gradient(140deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0.01));
+  border: 1px solid var(--stroke);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
+  animation: rise 0.4s ease-out;
+}
+
+.pnl-compact-header {
+  margin-bottom: 10px;
+}
+
+.pnl-compact-title {
+  margin: 0 0 6px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.pnl-compact-price {
+  font-size: 12px;
+  color: var(--muted);
+  font-family: 'Monaco', 'Courier New', monospace;
+}
+
+.pnl-compact-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  font-size: 12px;
+}
+
+.pnl-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.pnl-stat-label {
+  color: var(--muted);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.pnl-stat-value {
+  font-weight: 600;
+  font-size: 13px;
+  font-family: 'Monaco', 'Courier New', monospace;
+  color: var(--text);
+}
+
+.pnl-stat-value.pnl-positive {
+  color: var(--accent-2);
+}
+
+.pnl-stat-value.pnl-negative {
+  color: #ff6b6b;
+}
+
 @media (max-width: 540px) {
   .hero {
     flex-direction: column;
@@ -588,5 +740,9 @@ h2 {
   
   .analytics-header {
     flex-direction: column;
+  }
+  
+  .pnl-compact-stats {
+    grid-template-columns: repeat(2, 1fr);
   }
 }

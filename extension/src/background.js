@@ -1143,7 +1143,7 @@ function scheduleMarketRefresh() {
     refreshMarketSnapshots().catch((err) => {
       console.warn("[extension] market refresh failed", err);
     });
-  }, 20000);
+  }, 10000); // Refresh every 10 seconds
 }
 
 async function refreshMarketSnapshots() {
