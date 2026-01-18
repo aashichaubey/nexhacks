@@ -81,6 +81,7 @@ h1 {
 
 .signals,
 .markets,
+.live-ai-insights,
 .market-analytics,
 .pnl-dashboard {
   background: var(--card);
@@ -121,6 +122,20 @@ h1 {
 
 .nfl-item span {
   color: var(--muted);
+}
+
+.insights-content {
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.02);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
+.insights-content p {
+  margin: 0;
 }
 
 .signals ul {
