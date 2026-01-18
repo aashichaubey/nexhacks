@@ -51,6 +51,7 @@ function segmentToPacket(segment: any): TranscriptPacket {
 
 async function connectLiveKit() {
   if (!livekitUrl || !livekitToken) {
+    console.warn("[livekit-agent] LIVEKIT_URL and LIVEKIT_TOKEN must be set to connect to LiveKit. Skipping connection.");
     return;
   }
 
@@ -99,6 +100,7 @@ async function connectLiveKit() {
 ws.on("open", () => {
   console.log(`[livekit-agent] connected to ${hubUrl}`);
   connectLiveKit().catch((err) => {
+    // Only log error details, don't throw - allows service to continue without LiveKit
     console.error("[livekit-agent] failed to connect to LiveKit", err);
   });
 });

@@ -18,7 +18,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       .then(markets => sendResponse({ markets }))
       .catch(error => sendResponse({ error: error.message }));
     return true; // Keep channel open for async response
-  }
+  }00
 });
 
 // Detect live game on NBA website

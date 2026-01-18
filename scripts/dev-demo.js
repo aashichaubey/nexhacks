@@ -137,9 +137,12 @@ process.on('exit', () => {
 
 // Start all services
 start('ws-hub', [...NODE_CMD, 'services/ws-hub/src/index.ts']);
-start('livekit-agent', [...NODE_CMD, 'services/livekit-agent/src/index.ts']);
-start('gemini-worker', [...NODE_CMD, 'services/gemini-worker/src/index.ts']);
-start('market-matcher', [...NODE_CMD, 'services/market-matcher/src/index.ts']);
+// Small delay to let ws-hub start before clients connect
+setTimeout(() => {
+  start('livekit-agent', [...NODE_CMD, 'services/livekit-agent/src/index.ts']);
+  start('gemini-worker', [...NODE_CMD, 'services/gemini-worker/src/index.ts']);
+  start('market-matcher', [...NODE_CMD, 'services/market-matcher/src/index.ts']);
+}, 500);
 
 console.log('[demo] all services started. Press Ctrl+C to stop.');
 

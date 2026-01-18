@@ -6,7 +6,6 @@ const GEMINI_MODEL = "gemini-1.5-flash";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1/models";
 let ws;
 const state = {
-  signals: [],
   markets: [],
   nfl: null,
   context: null,
@@ -41,10 +40,6 @@ function connectHub() {
       if (envelope.type === "transcript_packet") {
         state.transcripts = [envelope.payload, ...state.transcripts].slice(0, 12);
         broadcast({ type: "transcript", payload: envelope.payload });
-      }
-      if (envelope.type === "signal") {
-        state.signals = [envelope.payload, ...state.signals].slice(0, 10);
-        broadcast({ type: "signal", payload: envelope.payload });
       }
       if (envelope.type === "market") {
         state.markets = [envelope.payload, ...state.markets].slice(0, 4);
