@@ -30,7 +30,7 @@ function emitPacket(payload: TranscriptPacket) {
   }
 }
 
-function segmentToPacket(segment: TranscriptionSegment): TranscriptPacket {
+function segmentToPacket(segment: any): TranscriptPacket {
   const now = Date.now();
   const startMs =
     segment.startTime !== undefined ? segment.startTime * 1000 : now - 2000;
@@ -51,37 +51,44 @@ function segmentToPacket(segment: TranscriptionSegment): TranscriptPacket {
 
 async function connectLiveKit() {
   if (!livekitUrl || !livekitToken) {
-    console.error(
-      "[livekit-agent] LIVEKIT_URL and LIVEKIT_TOKEN must be set."
-    );
     return;
   }
 
-  room.on(RoomEvent.TranscriptionReceived, (segments) => {
-    for (const segment of segments) {
-      const packet = segmentToPacket(segment);
-      if (packet.transcript.trim().length === 0) {
-        continue;
+  try {
+    // Set up transcription listener
+    room.on(RoomEvent.TranscriptionReceived, (segments: TranscriptionSegment[]) => {
+      for (const segment of segments) {
+        const packet = segmentToPacket(segment);
+        if (packet.transcript.trim().length === 0) {
+          continue;
+        }
+        emitPacket(packet);
       }
-      emitPacket(packet);
-    }
-  });
+    });
 
-  room.on(RoomEvent.TrackSubscribed, (track, publication, participant) => {
-    if (track.kind !== TrackKind.Audio) {
-      return;
-    }
-    console.log(
-      `[livekit-agent] audio track subscribed from ${participant.identity} (${publication.trackSid})`
-    );
-  });
+    // Listen for track subscriptions
+    room.on(RoomEvent.TrackSubscribed, (track: RemoteTrack, publication: RemoteTrackPublication, participant: any) => {
+      if (track.kind === Track.Kind.Audio) {
+        console.log(
+          `[livekit-agent] audio track subscribed from ${participant.identity} (${publication.trackSid})`
+        );
+      }
+    });
 
-  room.on(RoomEvent.Disconnected, () => {
-    console.warn("[livekit-agent] disconnected from LiveKit");
-  });
+    room.on(RoomEvent.Disconnected, () => {
+      console.warn("[livekit-agent] disconnected from LiveKit");
+    });
 
-  await room.connect(livekitUrl, livekitToken);
-  console.log(`[livekit-agent] connected to LiveKit at ${livekitUrl}`);
+    // Connect to LiveKit room using Node.js-compatible client
+    await room.connect(livekitUrl, livekitToken, {
+      autoSubscribe: true,
+    });
+    
+    console.log(`[livekit-agent] ✓ Connected to LiveKit at ${livekitUrl}`);
+  } catch (err) {
+    console.error("[livekit-agent] Failed to connect to LiveKit:", err);
+    throw err;
+  }
 }
 
 ws.on("open", () => {

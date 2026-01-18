@@ -6,6 +6,32 @@ const path = require('path');
 const ROOT_DIR = path.resolve(__dirname, '..');
 process.chdir(ROOT_DIR);
 
+// Load environment variables from .env file
+const fs = require('fs');
+const envFile = path.join(ROOT_DIR, '.env');
+if (fs.existsSync(envFile)) {
+  console.log('[demo] Loading environment variables from .env file...');
+  const envContent = fs.readFileSync(envFile, 'utf8');
+  envContent.split('\n').forEach(line => {
+    line = line.trim();
+    // Skip comments and empty lines
+    if (line && !line.startsWith('#')) {
+      const match = line.match(/^([^=]+)=(.*)$/);
+      if (match) {
+        const key = match[1].trim();
+        let value = match[2].trim();
+        // Remove quotes if present
+        if ((value.startsWith('"') && value.endsWith('"')) || 
+            (value.startsWith("'") && value.endsWith("'"))) {
+          value = value.slice(1, -1);
+        }
+        process.env[key] = value;
+      }
+    }
+  });
+  console.log('[demo] ✓ Environment variables loaded');
+}
+
 const NODE_CMD = ['node', '--experimental-strip-types'];
 const processes = [];
 let isCleaningUp = false;
@@ -16,7 +42,8 @@ function start(name, cmd) {
   const proc = spawn(command, args, {
     stdio: 'inherit',
     shell: false,
-    cwd: ROOT_DIR
+    cwd: ROOT_DIR,
+    env: process.env // Pass all environment variables (including from .env)
   });
   
   proc.on('error', (err) => {
