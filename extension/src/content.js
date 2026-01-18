@@ -91,6 +91,14 @@ function extractKeywords() {
   };
 }
 
+function isFootballScoreSearch(queryText) {
+  const query = queryText.toLowerCase();
+  const hasScore = /\\bscore(s)?\\b/.test(query);
+  const hasFootball = /\\bfootball\\b/.test(query) || /\\bnfl\\b/.test(query);
+  const hasMatchup = /\\bvs\\b/.test(query) || /\\bv\\b/.test(query);
+  return hasScore && (hasFootball || hasMatchup);
+}
+
 const extracted = extractKeywords();
 
 const context = {
@@ -104,3 +112,10 @@ const context = {
 };
 
 chrome.runtime.sendMessage({ type: "page_context", payload: context });
+
+if (context.source === "google_search" && isFootballScoreSearch(context.query)) {
+  chrome.runtime.sendMessage({
+    type: "open_popup",
+    payload: { query: context.query }
+  });
+}

@@ -10,6 +10,8 @@ const state = {
   wsStatus: "disconnected",
   wsLastChange: null
 };
+let lastPopupQuery = "";
+let lastPopupAt = 0;
 
 const ports = new Set();
 let searchTimeout;
@@ -83,6 +85,11 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     broadcast({ type: "context", payload: message.payload });
     queueMarketSearch(message.payload);
     scheduleMarketRefresh();
+    sendResponse({ ok: true });
+  }
+  if (message?.type === "open_popup") {
+    console.log("[extension][debug] open_popup requested", message.payload);
+    maybeOpenPopup(message.payload?.query);
     sendResponse({ ok: true });
   }
 });
@@ -207,6 +214,37 @@ function normalizeTitle(title) {
     .replace(/\\|\\s*NBA\\.com/i, "")
     .replace(/\\s+\\|\\s+/g, " ")
     .trim();
+}
+
+function maybeOpenPopup(query) {
+  const now = Date.now();
+  if (query && query === lastPopupQuery && now - lastPopupAt < 120000) {
+    console.log("[extension][debug] open_popup skipped (cooldown)");
+    return;
+  }
+  lastPopupQuery = query ?? "";
+  lastPopupAt = now;
+  if (chrome.action?.openPopup) {
+    chrome.action.openPopup().catch(() => {
+      console.log("[extension][debug] openPopup blocked, opening window");
+      openPopupWindow();
+    });
+    return;
+  }
+  console.log("[extension][debug] openPopup unavailable, opening window");
+  openPopupWindow();
+}
+
+function openPopupWindow() {
+  const url = chrome.runtime.getURL("src/panel.html");
+  chrome.windows.create(
+    { url, type: "popup", width: 420, height: 640, focused: true },
+    () => {
+      if (chrome.runtime.lastError) {
+        console.warn("[extension] failed to open popup window", chrome.runtime.lastError.message);
+      }
+    }
+  );
 }
 
 function cleanSearchQuery(query) {
@@ -348,7 +386,7 @@ function parseProbability(market) {
   );
   const index = yesIndex >= 0 ? yesIndex : 0;
   const price = Number(prices[index]);
-  return Number.isNaN(price) ? 0.5 : Math.min(1, Math.max(0, price));
+  return Number.isNaN(price) ? 0.5 : clampProbability(price);
 }
 
 function parseTimeRemainingMinutes(market) {
@@ -361,6 +399,10 @@ function parseTimeRemainingMinutes(market) {
     return 0;
   }
   return Math.max(0, Math.round((endMs - Date.now()) / 60000));
+}
+
+function clampProbability(value) {
+  return Math.min(1, Math.max(0, value));
 }
 
 function normalizeQueryTokens(query) {
@@ -393,16 +435,37 @@ function scoreMarketMatch(queryTokens, market) {
   return queryTokens.filter((token) => haystack.includes(token)).length;
 }
 
+function resolveProbability(snapshot, fallback) {
+  const hasOutcomes = Array.isArray(snapshot.outcomes) && snapshot.outcomes.length > 0;
+  const hasPrices =
+    Array.isArray(snapshot.outcomePrices) && snapshot.outcomePrices.length > 0;
+  if (hasOutcomes && hasPrices) {
+    return parseProbability(snapshot);
+  }
+  const direct = Number(snapshot.probability ?? snapshot.lastPrice);
+  if (!Number.isNaN(direct) && Number.isFinite(direct)) {
+    return clampProbability(direct);
+  }
+  return fallback ?? 0.5;
+}
+
+
 function scheduleMarketRefresh() {
   if (marketRefreshTimer) {
     return;
   }
+  console.log("[extension][debug] market refresh scheduled");
   marketRefreshTimer = setInterval(() => {
     if (state.markets.length === 0) {
       clearInterval(marketRefreshTimer);
       marketRefreshTimer = null;
+      console.log("[extension][debug] market refresh stopped (no markets)");
       return;
     }
+    console.log(
+      "[extension][debug] market refresh tick",
+      state.markets.map((market) => market.slug ?? market.id)
+    );
     refreshMarketSnapshots().catch((err) => {
       console.warn("[extension] market refresh failed", err);
     });
@@ -410,10 +473,12 @@ function scheduleMarketRefresh() {
 }
 
 async function refreshMarketSnapshots() {
+  console.log("[extension][debug] refreshing market snapshots");
   const updates = await Promise.all(
     state.markets.map((market) => refreshMarketSnapshot(market))
   );
   const refreshed = updates.filter(Boolean);
+  console.log("[extension][debug] market refresh results", refreshed);
   if (refreshed.length === 0) {
     return;
   }
@@ -423,13 +488,19 @@ async function refreshMarketSnapshots() {
 }
 
 async function refreshMarketSnapshot(market) {
+  console.log("[extension][debug] refresh market snapshot", market.slug ?? market.id);
   const snapshot = await fetchGammaMarket(market);
   if (!snapshot) {
+    console.log(
+      "[extension][debug] no gamma snapshot for",
+      market.slug ?? market.id
+    );
     return null;
   }
+  const nextProbability = resolveProbability(snapshot, market.probability);
   return {
     ...market,
-    probability: parseProbability(snapshot),
+    probability: nextProbability,
     volumeUsd: snapshot.volume ?? market.volumeUsd ?? 0,
     liquidityUsd: snapshot.liquidity ?? market.liquidityUsd ?? 0,
     timeRemainingMinutes: parseTimeRemainingMinutes(snapshot),

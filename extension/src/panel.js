@@ -123,7 +123,7 @@ function renderContext(context) {
 
 function applySnapshot(snapshot) {
   state.signals = snapshot.signals ?? [];
-  state.markets = snapshot.markets ?? [];
+  state.markets = (snapshot.markets ?? []).slice(0, 4);
   state.transcripts = snapshot.transcripts ?? [];
   if (snapshot.wsStatus) {
     wsStatus.textContent = snapshot.wsStatus;
@@ -148,12 +148,12 @@ port.onMessage.addListener((message) => {
     renderLiveFeed();
   }
   if (message.type === "market") {
-    state.markets = [message.payload, ...state.markets].slice(0, 8);
+    state.markets = [message.payload, ...state.markets].slice(0, 4);
     renderMarkets();
     renderPayoff(state.markets);
   }
   if (message.type === "markets_refresh") {
-    state.markets = message.payload.slice(0, 8);
+    state.markets = message.payload.slice(0, 4);
     renderMarkets();
     renderPayoff(state.markets);
   }
