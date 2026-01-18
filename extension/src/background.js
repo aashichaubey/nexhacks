@@ -13,6 +13,7 @@ const state = {
 
 const ports = new Set();
 let searchTimeout;
+let marketRefreshTimer;
 
 function connectHub() {
   ws = new WebSocket(HUB_URL);
@@ -33,7 +34,7 @@ function connectHub() {
         broadcast({ type: "signal", payload: envelope.payload });
       }
       if (envelope.type === "market") {
-        state.markets = [envelope.payload, ...state.markets].slice(0, 8);
+        state.markets = [envelope.payload, ...state.markets].slice(0, 4);
         broadcast({ type: "market", payload: envelope.payload });
       }
     } catch (err) {
@@ -81,6 +82,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     chrome.storage.local.set({ lastPageContext: message.payload });
     broadcast({ type: "context", payload: message.payload });
     queueMarketSearch(message.payload);
+    scheduleMarketRefresh();
     sendResponse({ ok: true });
   }
 });
@@ -166,8 +168,9 @@ function queueMarketSearch(context) {
       .then((results) => {
         const merged = dedupeMarkets(results.flat());
         console.log("[extension][debug] market results", merged);
-        state.markets = merged.concat(state.markets).slice(0, 8);
+        state.markets = merged.concat(state.markets).slice(0, 4);
         broadcast({ type: "markets_refresh", payload: merged });
+        scheduleMarketRefresh();
       })
       .catch((err) => {
         console.warn("[extension] polymarket search failed", err);
@@ -181,6 +184,9 @@ function buildSearchQueries(context) {
     const cleaned = cleanSearchQuery(context.query);
     if (cleaned) {
       queries.add(cleaned);
+      for (const variant of buildQueryVariants(cleaned)) {
+        queries.add(variant);
+      }
     }
     return Array.from(queries).filter((q) => q.length > 2);
   }
@@ -210,6 +216,30 @@ function cleanSearchQuery(query) {
     .replace(/\s+/g, " ")
     .trim();
   return stripped;
+}
+
+function buildQueryVariants(query) {
+  const variants = new Set();
+  const tokens = query.split(/\s+/).filter(Boolean);
+  if (tokens.length < 2) {
+    return [];
+  }
+  variants.add(tokens.join(" "));
+  variants.add(`${tokens.join(" ")} nba`);
+  variants.add(`${tokens.join(" ")} nfl`);
+  variants.add(`${tokens.join(" ")} mlb`);
+  variants.add(`${tokens.join(" ")} nhl`);
+  if (tokens.includes("vs")) {
+    const withoutVs = tokens.filter((token) => token !== "vs");
+    if (withoutVs.length >= 2) {
+      variants.add(withoutVs.join(" "));
+      variants.add(`${withoutVs.join(" ")} nba`);
+      variants.add(`${withoutVs.join(" ")} nfl`);
+      variants.add(`${withoutVs.join(" ")} mlb`);
+      variants.add(`${withoutVs.join(" ")} nhl`);
+    }
+  }
+  return Array.from(variants);
 }
 
 async function searchPolymarket(query) {
@@ -243,6 +273,7 @@ async function searchPolymarketWeb(query) {
 
   return markets.map((market) => ({
     id: market.id ?? market.slug ?? query,
+    slug: market.slug,
     title:
       market.question ??
       market.title ??
@@ -281,6 +312,7 @@ async function searchPolymarketGamma(query) {
     .sort((a, b) => b.score - a.score);
   return scored.map(({ market }) => ({
     id: market.id ?? market.slug ?? query,
+    slug: market.slug,
     title: market.question ?? market.slug ?? "Polymarket market",
     url:
       market.url ??
@@ -359,4 +391,95 @@ function scoreMarketMatch(queryTokens, market) {
   const haystack =
     `${market.question ?? ""} ${market.slug ?? ""} ${market.description ?? ""}`.toLowerCase();
   return queryTokens.filter((token) => haystack.includes(token)).length;
+}
+
+function scheduleMarketRefresh() {
+  if (marketRefreshTimer) {
+    return;
+  }
+  marketRefreshTimer = setInterval(() => {
+    if (state.markets.length === 0) {
+      clearInterval(marketRefreshTimer);
+      marketRefreshTimer = null;
+      return;
+    }
+    refreshMarketSnapshots().catch((err) => {
+      console.warn("[extension] market refresh failed", err);
+    });
+  }, 20000);
+}
+
+async function refreshMarketSnapshots() {
+  const updates = await Promise.all(
+    state.markets.map((market) => refreshMarketSnapshot(market))
+  );
+  const refreshed = updates.filter(Boolean);
+  if (refreshed.length === 0) {
+    return;
+  }
+  const merged = dedupeMarkets(refreshed.concat(state.markets));
+  state.markets = merged.slice(0, 4);
+  broadcast({ type: "markets_refresh", payload: state.markets });
+}
+
+async function refreshMarketSnapshot(market) {
+  const snapshot = await fetchGammaMarket(market);
+  if (!snapshot) {
+    return null;
+  }
+  return {
+    ...market,
+    probability: parseProbability(snapshot),
+    volumeUsd: snapshot.volume ?? market.volumeUsd ?? 0,
+    liquidityUsd: snapshot.liquidity ?? market.liquidityUsd ?? 0,
+    timeRemainingMinutes: parseTimeRemainingMinutes(snapshot),
+    url:
+      snapshot.url ??
+      (snapshot.slug ? `${POLYMARKET_BASE}/market/${snapshot.slug}` : market.url),
+    slug: snapshot.slug ?? market.slug
+  };
+}
+
+async function fetchGammaMarket(market) {
+  const byId = market.id ? await fetchGammaById(market.id) : null;
+  if (byId) {
+    return byId;
+  }
+  if (market.slug) {
+    const bySlug = await fetchGammaBySlug(market.slug);
+    if (bySlug) {
+      return bySlug;
+    }
+  }
+  return null;
+}
+
+async function fetchGammaById(id) {
+  try {
+    const res = await fetch(`${GAMMA_BASE}/markets/${encodeURIComponent(id)}`);
+    if (!res.ok) {
+      return null;
+    }
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
+async function fetchGammaBySlug(slug) {
+  try {
+    const url = new URL(`${GAMMA_BASE}/markets`);
+    url.searchParams.set("slug", slug);
+    const res = await fetch(url.toString());
+    if (!res.ok) {
+      return null;
+    }
+    const data = await res.json();
+    if (Array.isArray(data)) {
+      return data[0] ?? null;
+    }
+    return data ?? null;
+  } catch {
+    return null;
+  }
 }
