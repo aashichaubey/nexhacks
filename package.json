@@ -2,7 +2,7 @@
   "name": "nexhacks",
   "private": true,
   "scripts": {
-    "demo": "bash scripts/dev-demo.sh"
+    "demo": "node scripts/dev-demo.js"
   },
   "workspaces": [
     "services/*",
