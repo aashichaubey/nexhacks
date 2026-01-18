@@ -83,7 +83,7 @@ function renderMarkets() {
         <div>Liq $${liquidityUsd.toLocaleString()}</div>
         <div>${market.timeRemainingMinutes}m left</div>
       </div>
-      <a href="${market.url}" target="_blank" rel="noreferrer">Open on Polymarket</a>
+      <a href="${market.url}" target="_blank" rel="noreferrer" style="color: #00ff00;">Open on Polymarket</a>
     `;
     marketList.appendChild(card);
   }
