@@ -2,6 +2,7 @@ const HUB_URL = "ws://127.0.0.1:8788";
 const POLYMARKET_BASE = "https://polymarket.com";
 const GAMMA_BASE = "https://gamma-api.polymarket.com";
 const ESPN_BASE = "https://site.api.espn.com/apis/site/v2/sports/football/nfl";
+const ESPN_SCOREBOARD = `${ESPN_BASE}/scoreboard`;
 const GEMINI_MODEL = "gemini-1.5-flash";
 const GEMINI_BASE = "https://generativelanguage.googleapis.com/v1/models";
 let ws;
@@ -197,8 +198,12 @@ function queueMarketSearch(context) {
       .then((results) => {
         const merged = dedupeMarkets(results.flat());
         console.log("[extension][debug] market results", merged);
-        state.markets = merged.concat(state.markets).slice(0, 4);
-        broadcast({ type: "markets_refresh", payload: merged });
+        return enrichMarketsWithGamma(merged);
+      })
+      .then((enriched) => {
+        const markets = enriched ?? [];
+        state.markets = markets.concat(state.markets).slice(0, 4);
+        broadcast({ type: "markets_refresh", payload: markets });
         scheduleMarketRefresh();
       })
       .catch((err) => {
@@ -387,20 +392,33 @@ async function fetchNflInsight(query) {
     return null;
   }
   const [teamA, teamB] = matched;
-  const [scheduleA, scheduleB] = await Promise.all([
+  const [scheduleA, scheduleB, scoreboard, statsA, statsB] = await Promise.all([
     fetchTeamSchedule(teamA.id),
-    fetchTeamSchedule(teamB.id)
+    fetchTeamSchedule(teamB.id),
+    fetchScoreboard(),
+    fetchTeamStats(teamA.id),
+    fetchTeamStats(teamB.id)
   ]);
   const gamesA = extractGamesFromSchedule(scheduleA);
   const gamesB = extractGamesFromSchedule(scheduleB);
+  const scoreboardGames = extractGamesFromScoreboard(scoreboard);
   const headToHead = gamesA.filter(
     (game) =>
       game.isFinal &&
+      hasValidScores(game) &&
       ((game.home.id === teamA.id && game.away.id === teamB.id) ||
         (game.home.id === teamB.id && game.away.id === teamA.id))
   );
-  const recentA = summarizeRecentGames(gamesA, teamA.id, 5);
-  const recentB = summarizeRecentGames(gamesB, teamB.id, 5);
+  const recentA = summarizeRecentGames(
+    mergeRecentGames(gamesA, scoreboardGames, teamA.id),
+    teamA.id,
+    5
+  );
+  const recentB = summarizeRecentGames(
+    mergeRecentGames(gamesB, scoreboardGames, teamB.id),
+    teamB.id,
+    5
+  );
   const h2hSummary = summarizeHeadToHead(headToHead, teamA, teamB);
   const lean = buildLeanSummary(teamA, teamB, recentA, recentB, h2hSummary);
   const gemini = await fetchGeminiSummary(query, teamA, teamB, recentA, recentB, h2hSummary);
@@ -412,6 +430,10 @@ async function fetchNflInsight(query) {
     recent: {
       [teamA.abbreviation]: recentA,
       [teamB.abbreviation]: recentB
+    },
+    teamStats: {
+      [teamA.abbreviation]: statsA,
+      [teamB.abbreviation]: statsB
     },
     headToHead: h2hSummary,
     lean,
@@ -602,6 +624,57 @@ async function fetchTeamSchedule(teamId) {
   return res.json();
 }
 
+async function fetchTeamStats(teamId) {
+  const res = await fetch(`${ESPN_BASE}/teams/${teamId}/statistics`);
+  if (!res.ok) {
+    return null;
+  }
+  const data = await res.json();
+  return extractTeamStats(data);
+}
+
+function extractTeamStats(data) {
+  const stats = Array.isArray(data?.stats) ? data.stats : [];
+  const byName = new Map();
+  for (const stat of stats) {
+    const name = String(stat?.name ?? stat?.displayName ?? "").toLowerCase();
+    if (!name) {
+      continue;
+    }
+    const value = Number(stat?.value ?? stat?.displayValue ?? NaN);
+    if (Number.isFinite(value)) {
+      byName.set(name, value);
+    }
+  }
+  return {
+    pointsForPerGame:
+      byName.get("pointspergame") ??
+      byName.get("pointsforpergame") ??
+      byName.get("pointsfor") ??
+      null,
+    pointsAgainstPerGame:
+      byName.get("pointsagainstpergame") ??
+      byName.get("pointsagainst") ??
+      null,
+    yardsPerGame:
+      byName.get("totalyardspergame") ??
+      byName.get("yardspergame") ??
+      null,
+    yardsAllowedPerGame:
+      byName.get("yardsallowedpergame") ??
+      byName.get("yardsallowed") ??
+      null
+  };
+}
+
+async function fetchScoreboard() {
+  const res = await fetch(ESPN_SCOREBOARD);
+  if (!res.ok) {
+    throw new Error(`ESPN scoreboard error ${res.status}`);
+  }
+  return res.json();
+}
+
 function extractGamesFromSchedule(data) {
   const events = Array.isArray(data?.events)
     ? data.events
@@ -644,9 +717,62 @@ function extractGamesFromSchedule(data) {
     .filter(Boolean);
 }
 
+function extractGamesFromScoreboard(data) {
+  const events = Array.isArray(data?.events) ? data.events : [];
+  return events
+    .map((event) => {
+      const competition = Array.isArray(event?.competitions)
+        ? event.competitions[0]
+        : null;
+      const competitors = competition?.competitors ?? [];
+      const home =
+        competitors.find((team) => team.homeAway === "home") ?? competitors[0];
+      const away =
+        competitors.find((team) => team.homeAway === "away") ?? competitors[1];
+      if (!home?.team?.id || !away?.team?.id) {
+        return null;
+      }
+      const status = competition?.status?.type ?? {};
+      return {
+        id: String(event?.id ?? competition?.id ?? ""),
+        date: event?.date ?? competition?.date ?? "",
+        isFinal: Boolean(status?.completed),
+        week: event?.week?.number ?? event?.week?.text ?? "",
+        home: {
+          id: String(home.team.id),
+          name: home.team.shortDisplayName ?? home.team.displayName ?? "",
+          abbreviation: home.team.abbreviation ?? "",
+          score: parseScore(home.score)
+        },
+        away: {
+          id: String(away.team.id),
+          name: away.team.shortDisplayName ?? away.team.displayName ?? "",
+          abbreviation: away.team.abbreviation ?? "",
+          score: parseScore(away.score)
+        }
+      };
+    })
+    .filter(Boolean);
+}
+
+function mergeRecentGames(scheduleGames, scoreboardGames, teamId) {
+  const combined = scheduleGames
+    .concat(scoreboardGames)
+    .filter((game) => game && (game.home.id === teamId || game.away.id === teamId))
+    .filter((game) => game.isFinal && hasValidScores(game));
+  const byId = new Map();
+  for (const game of combined) {
+    const key = game.id || `${game.date}-${game.home.id}-${game.away.id}`;
+    if (!byId.has(key)) {
+      byId.set(key, game);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 function summarizeRecentGames(games, teamId, limit) {
   const completed = games
-    .filter((game) => game.isFinal && (game.home.id === teamId || game.away.id === teamId))
+    .filter((game) => game.isFinal && hasValidScores(game))
     .sort((a, b) => Date.parse(b.date) - Date.parse(a.date))
     .slice(0, limit);
   let wins = 0;
@@ -685,7 +811,9 @@ function summarizeHeadToHead(games, teamA, teamB) {
   let teamAWins = 0;
   let teamBWins = 0;
   let lastMeeting = null;
-  const sorted = games.sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
+  const sorted = games
+    .filter((game) => hasValidScores(game))
+    .sort((a, b) => Date.parse(b.date) - Date.parse(a.date));
   for (const game of sorted) {
     const teamAScore =
       game.home.id === teamA.id ? game.home.score : game.away.score;
@@ -744,7 +872,17 @@ function buildLeanSummary(teamA, teamB, recentA, recentB, headToHead) {
 
 function parseScore(value) {
   const parsed = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(parsed) ? parsed : 0;
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function hasValidScores(game) {
+  return (
+    Number.isFinite(game?.home?.score) &&
+    Number.isFinite(game?.away?.score) &&
+    game.home.score !== null &&
+    game.away.score !== null &&
+    !(game.home.score === 0 && game.away.score === 0)
+  );
 }
 
 function safeNumber(value, fallback, precision) {
@@ -802,6 +940,8 @@ async function searchPolymarketWeb(query) {
     probability: Number(market.probability ?? market.lastPrice ?? 0.5),
     volumeUsd: Number(market.volume ?? market.volumeUsd ?? 0),
     liquidityUsd: Number(market.liquidity ?? market.liquidityUsd ?? 0),
+    outcomes: Array.isArray(market.outcomes) ? market.outcomes : [],
+    outcomePrices: Array.isArray(market.outcomePrices) ? market.outcomePrices : [],
     timeRemainingMinutes: 0,
     matchedSignals: [],
     ts: new Date().toISOString()
@@ -837,6 +977,8 @@ async function searchPolymarketGamma(query) {
     volumeUsd: market.volume ?? 0,
     liquidityUsd: market.liquidity ?? 0,
     timeRemainingMinutes: parseTimeRemainingMinutes(market),
+    outcomes: Array.isArray(market.outcomes) ? market.outcomes : [],
+    outcomePrices: Array.isArray(market.outcomePrices) ? market.outcomePrices : [],
     matchedSignals: [],
     ts: new Date().toISOString()
   }));
@@ -851,6 +993,60 @@ function dedupeMarkets(markets) {
     }
   }
   return Array.from(map.values());
+}
+
+async function enrichMarketsWithGamma(markets) {
+  const updates = await Promise.all(
+    markets.map(async (market) => {
+      try {
+        const snapshot = await fetchGammaMarket(market);
+        if (!snapshot) {
+          return market;
+        }
+        if (market.title?.toLowerCase().includes("seahawks")) {
+          console.log("[extension][debug] gamma snapshot", {
+            title: market.title,
+            outcomes: snapshot.outcomes,
+            outcomePrices: snapshot.outcomePrices
+          });
+        }
+        return {
+          ...market,
+          probability: resolveProbability(snapshot, market.probability),
+          volumeUsd: snapshot.volume ?? market.volumeUsd ?? 0,
+          liquidityUsd: snapshot.liquidity ?? market.liquidityUsd ?? 0,
+          timeRemainingMinutes: parseTimeRemainingMinutes(snapshot),
+          outcomes: normalizeOutcomeArray(snapshot.outcomes, market.outcomes),
+          outcomePrices: normalizeOutcomeArray(snapshot.outcomePrices, market.outcomePrices),
+          url:
+            snapshot.url ??
+            (snapshot.slug
+              ? `${POLYMARKET_BASE}/market/${snapshot.slug}`
+              : market.url),
+          slug: snapshot.slug ?? market.slug
+        };
+      } catch (err) {
+        console.warn("[extension] gamma enrich failed", err);
+        return market;
+      }
+    })
+  );
+  return updates;
+}
+
+function normalizeOutcomeArray(value, fallback) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+  if (typeof value === "string") {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : fallback ?? [];
+    } catch {
+      return fallback ?? [];
+    }
+  }
+  return fallback ?? [];
 }
 
 function parseProbability(market) {
@@ -982,6 +1178,8 @@ async function refreshMarketSnapshot(market) {
     volumeUsd: snapshot.volume ?? market.volumeUsd ?? 0,
     liquidityUsd: snapshot.liquidity ?? market.liquidityUsd ?? 0,
     timeRemainingMinutes: parseTimeRemainingMinutes(snapshot),
+    outcomes: Array.isArray(snapshot.outcomes) ? snapshot.outcomes : market.outcomes ?? [],
+    outcomePrices: Array.isArray(snapshot.outcomePrices) ? snapshot.outcomePrices : market.outcomePrices ?? [],
     url:
       snapshot.url ??
       (snapshot.slug ? `${POLYMARKET_BASE}/market/${snapshot.slug}` : market.url),

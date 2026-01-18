@@ -63,13 +63,15 @@ function renderNflInsight() {
 
 function renderMarkets() {
   marketList.innerHTML = "";
-  for (const market of state.markets) {
+  const markets = filterMarketsForMatchup(state.markets, state.nfl);
+  for (const market of markets) {
     const card = document.createElement("div");
     card.className = "market-card";
     const volumeUsd = Number(market.volumeUsd ?? 0);
     const liquidityUsd = Number(market.liquidityUsd ?? 0);
+    const displayProb = resolveMarketProbability(market);
     card.innerHTML = `
-      <div class="pill">${Math.round(market.probability * 100)}% prob</div>
+      <div class="pill">${Math.round(displayProb * 100)}% prob</div>
       <h3>${market.title}</h3>
       <div class="market-stats">
         <div>Vol $${volumeUsd.toLocaleString()}</div>
@@ -89,16 +91,10 @@ function analyzeMarketWithNflInsight(market, nflInsight) {
 
   const [teamA, teamB] = nflInsight.teams;
   const marketTitle = market.title.toLowerCase();
-  const marketProb = market.probability;
-  
-  // Try to match market to teams
-  const matchesTeamA = marketTitle.includes(teamA.abbreviation.toLowerCase()) || 
-                       marketTitle.includes(teamA.shortName.toLowerCase()) ||
-                       marketTitle.includes(teamA.location.toLowerCase());
-  const matchesTeamB = marketTitle.includes(teamB.abbreviation.toLowerCase()) || 
-                       marketTitle.includes(teamB.shortName.toLowerCase()) ||
-                       marketTitle.includes(teamB.location.toLowerCase());
-  
+
+  const matchesTeamA = matchesTeamFromTitle(marketTitle, teamA);
+  const matchesTeamB = matchesTeamFromTitle(marketTitle, teamB);
+
   if (!matchesTeamA && !matchesTeamB) {
     return null; // Market doesn't match these teams
   }
@@ -107,25 +103,22 @@ function analyzeMarketWithNflInsight(market, nflInsight) {
   const recentA = nflInsight.recent?.[teamA.abbreviation] ?? {};
   const recentB = nflInsight.recent?.[teamB.abbreviation] ?? {};
   const headToHead = nflInsight.headToHead ?? {};
+  const statsA = nflInsight.teamStats?.[teamA.abbreviation] ?? null;
+  const statsB = nflInsight.teamStats?.[teamB.abbreviation] ?? null;
 
-  // Calculate ESPN prediction based on lean
-  let espnProbability = 0.5;
-  if (lean.team === teamA.abbreviation) {
-    espnProbability = 0.5 + (lean.confidence ?? 0) * 0.3; // Boost based on confidence
-  } else if (lean.team === teamB.abbreviation) {
-    espnProbability = 0.5 - (lean.confidence ?? 0) * 0.3;
-  } else {
-    // Use recent form as proxy
-    const winRateA = recentA.games > 0 ? recentA.wins / recentA.games : 0.5;
-    const winRateB = recentB.games > 0 ? recentB.wins / recentB.games : 0.5;
-    const pointDiffDelta = (recentA.avgPointDiff ?? 0) - (recentB.avgPointDiff ?? 0);
-    espnProbability = 0.5 + (winRateA - winRateB) * 0.2 + Math.min(0.15, Math.max(-0.15, pointDiffDelta / 20));
-  }
-
-  // Adjust based on which team the market favors
-  if (matchesTeamB && !matchesTeamA) {
-    espnProbability = 1 - espnProbability; // Flip if market is about team B
-  }
+  const targetTeam = resolveTargetTeam(lean, teamA, teamB, matchesTeamA, matchesTeamB);
+  const espnProbability = calculateModelProbability(
+    recentA,
+    recentB,
+    headToHead,
+    statsA,
+    statsB,
+    targetTeam,
+    teamA,
+    teamB
+  );
+  const marketOutcome = resolveMarketOutcome(market, targetTeam, teamA, teamB);
+  const marketProb = marketOutcome.probability;
 
   // Calculate metrics
   const probabilityGap = Math.abs(espnProbability - marketProb);
@@ -142,18 +135,22 @@ function analyzeMarketWithNflInsight(market, nflInsight) {
   const riskRewardRatio = potentialLoss > 0 ? potentialProfit / potentialLoss : 0;
   
   // Confidence score based on multiple factors
-  let confidence = Math.abs(probabilityGap) * 2; // Base confidence from gap
+  let confidence = Math.abs(probabilityGap) * 2;
   if (lean.confidence) {
-    confidence = (confidence + lean.confidence) / 2; // Factor in ESPN lean confidence
+    confidence = (confidence + lean.confidence) / 2;
   }
-  confidence = Math.min(1, confidence);
+  const sampleSize = Math.min(recentA.games ?? 0, recentB.games ?? 0);
+  const sampleCap = sampleSize >= 4 ? 1 : sampleSize === 3 ? 0.8 : sampleSize === 2 ? 0.65 : 0.5;
+  const marketQuality = calculateMarketQuality(market);
+  confidence = Math.min(sampleCap, Math.max(0.1, confidence)) * marketQuality;
+  confidence = Math.min(sampleCap, Math.max(0.1, confidence));
 
   // Profit likelihood (0-100%)
   const profitLikelihood = Math.max(0, Math.min(100, 50 + (roiPercent * 2)));
 
   return {
     market,
-    matchedTeam: matchesTeamA ? teamA : teamB,
+    matchedTeam: targetTeam,
     espnProbability,
     marketProbability: marketProb,
     probabilityGap,
@@ -163,7 +160,9 @@ function analyzeMarketWithNflInsight(market, nflInsight) {
     riskRewardRatio,
     confidence,
     profitLikelihood,
-    recentStats: matchesTeamA ? recentA : recentB,
+    marketOutcomeLabel: marketOutcome.label,
+    recentStats: targetTeam.abbreviation === teamA.abbreviation ? recentA : recentB,
+    marketQuality,
     headToHead
   };
 }
@@ -173,7 +172,7 @@ function generatePlainEnglishExplanation(market, nflInsight, pnl) {
   
   const [teamA, teamB] = nflInsight.teams;
   const lean = nflInsight.lean ?? {};
-  const marketProb = market.probability;
+  const marketProb = pnl.marketProbability ?? market.probability;
   const espnProb = pnl.espnProbability;
   
   // Determine which team the market favors
@@ -205,9 +204,238 @@ function generatePlainEnglishExplanation(market, nflInsight, pnl) {
   return explanation;
 }
 
-function calculatePnL(market, espnProbability, betAmount = 100) {
-  // Calculate Profit & Loss for a $100 bet (standard in prediction markets)
-  const marketProb = market.probability;
+function matchesTeamFromTitle(marketTitle, team) {
+  const tokens = [
+    team.abbreviation,
+    team.shortName,
+    team.location,
+    team.name
+  ]
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+  return tokens.some((token) => token && marketTitle.includes(token));
+}
+
+function filterMarketsForMatchup(markets, nflInsight) {
+  if (!nflInsight?.teams || nflInsight.teams.length < 2) {
+    return markets;
+  }
+  const [teamA, teamB] = nflInsight.teams;
+  return (markets ?? []).filter((market) => {
+    const title = String(market.title ?? "").toLowerCase();
+    const titleMatchA = matchesTeamFromTitle(title, teamA);
+    const titleMatchB = matchesTeamFromTitle(title, teamB);
+    const outcomeMatchA = hasOutcomeForTeam(market, teamA);
+    const outcomeMatchB = hasOutcomeForTeam(market, teamB);
+    if (titleMatchA && titleMatchB) {
+      return true;
+    }
+    if (outcomeMatchA && outcomeMatchB) {
+      return true;
+    }
+    return titleMatchA || titleMatchB || outcomeMatchA || outcomeMatchB;
+  });
+}
+
+function hasOutcomeForTeam(market, team) {
+  const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
+  if (outcomes.length === 0) {
+    return false;
+  }
+  const tokens = [
+    team.abbreviation,
+    team.shortName,
+    team.location,
+    team.name
+  ]
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+  return outcomes.some((outcome) => {
+    const text = String(outcome ?? "").toLowerCase();
+    return tokens.some((token) => token && text.includes(token));
+  });
+}
+
+function resolveTargetTeam(lean, teamA, teamB, matchesTeamA, matchesTeamB) {
+  if (lean?.team === teamA.abbreviation && matchesTeamA) {
+    return teamA;
+  }
+  if (lean?.team === teamB.abbreviation && matchesTeamB) {
+    return teamB;
+  }
+  if (matchesTeamA && !matchesTeamB) {
+    return teamA;
+  }
+  if (matchesTeamB && !matchesTeamA) {
+    return teamB;
+  }
+  return teamA;
+}
+
+function resolveMarketOutcome(market, targetTeam, teamA, teamB) {
+  const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
+  const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
+  if (outcomes.length > 0 && prices.length === outcomes.length) {
+    const targetIndex = findOutcomeIndex(outcomes, targetTeam);
+    if (targetIndex >= 0) {
+      const price = Number(prices[targetIndex]);
+      return {
+        probability: Number.isFinite(price) ? clampProbability(price) : market.probability,
+        label: outcomes[targetIndex]
+      };
+    }
+    const teamAIndex = findOutcomeIndex(outcomes, teamA);
+    const teamBIndex = findOutcomeIndex(outcomes, teamB);
+    if (teamAIndex >= 0 && teamBIndex >= 0) {
+      const fallbackIndex = targetTeam.abbreviation === teamB.abbreviation ? teamBIndex : teamAIndex;
+      const price = Number(prices[fallbackIndex]);
+      return {
+        probability: Number.isFinite(price) ? clampProbability(price) : market.probability,
+        label: outcomes[fallbackIndex]
+      };
+    }
+  }
+  return { probability: market.probability, label: "market" };
+}
+
+function resolveMarketProbability(market) {
+  const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
+  const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
+  if (outcomes.length > 0 && prices.length === outcomes.length) {
+    const yesIndex = outcomes.findIndex(
+      (outcome) => String(outcome ?? "").toLowerCase() === "yes"
+    );
+    if (yesIndex >= 0) {
+      const price = Number(prices[yesIndex]);
+      if (Number.isFinite(price)) {
+        return clampProbability(price);
+      }
+    }
+    const title = String(market.title ?? "").toLowerCase();
+    let bestIndex = -1;
+    let bestLength = 0;
+    outcomes.forEach((outcome, index) => {
+      const text = String(outcome ?? "").toLowerCase();
+      if (text && title.includes(text) && text.length > bestLength) {
+        bestIndex = index;
+        bestLength = text.length;
+      }
+    });
+    if (bestIndex >= 0) {
+      const price = Number(prices[bestIndex]);
+      if (Number.isFinite(price)) {
+        return clampProbability(price);
+      }
+    }
+    const fallback = Number(prices[0]);
+    if (Number.isFinite(fallback)) {
+      return clampProbability(fallback);
+    }
+  }
+  const direct = Number(market.probability ?? 0.5);
+  return Number.isFinite(direct) ? clampProbability(direct) : 0.5;
+}
+
+function findOutcomeIndex(outcomes, team) {
+  const teamTokens = [
+    team.abbreviation,
+    team.shortName,
+    team.location,
+    team.name
+  ]
+    .filter(Boolean)
+    .map((value) => value.toLowerCase());
+  return outcomes.findIndex((outcome) => {
+    const normalized = String(outcome ?? "").toLowerCase();
+    return teamTokens.some((token) => token && normalized.includes(token));
+  });
+}
+
+function calculateModelProbability(
+  recentA,
+  recentB,
+  headToHead,
+  statsA,
+  statsB,
+  targetTeam,
+  teamA,
+  teamB
+) {
+  const winRateA = recentA.games > 0 ? recentA.wins / recentA.games : 0.5;
+  const winRateB = recentB.games > 0 ? recentB.wins / recentB.games : 0.5;
+  const pointDiffDelta = (recentA.avgPointDiff ?? 0) - (recentB.avgPointDiff ?? 0);
+  const h2hDelta =
+    (headToHead?.[teamA.abbreviation] ?? 0) -
+    (headToHead?.[teamB.abbreviation] ?? 0);
+  const ratingA = calculateStatRating(statsA);
+  const ratingB = calculateStatRating(statsB);
+  const ratingDelta = ratingA - ratingB;
+
+  let base = 0.5 + (winRateA - winRateB) * 0.35;
+  base += Math.max(-0.15, Math.min(0.15, pointDiffDelta / 24));
+  base += Math.max(-0.1, Math.min(0.1, h2hDelta * 0.05));
+  base += Math.max(-0.12, Math.min(0.12, ratingDelta / 20));
+
+  const modelProb = clampProbability(base);
+  if (targetTeam.abbreviation === teamA.abbreviation) {
+    return modelProb;
+  }
+  return clampProbability(1 - modelProb);
+}
+
+function calculateStatRating(stats) {
+  if (!stats) {
+    return 0;
+  }
+  const pointsFor = Number(stats.pointsForPerGame ?? stats.pointsFor ?? 0);
+  const pointsAgainst = Number(stats.pointsAgainstPerGame ?? stats.pointsAgainst ?? 0);
+  const yardsFor = Number(stats.yardsPerGame ?? 0);
+  const yardsAgainst = Number(stats.yardsAllowedPerGame ?? 0);
+  let rating = 0;
+  if (Number.isFinite(pointsFor) && Number.isFinite(pointsAgainst)) {
+    rating += pointsFor - pointsAgainst;
+  }
+  if (Number.isFinite(yardsFor) && Number.isFinite(yardsAgainst)) {
+    rating += (yardsFor - yardsAgainst) / 12;
+  }
+  return rating;
+}
+
+function calculateMarketQuality(market) {
+  const volume = Number(market.volumeUsd ?? 0);
+  const liquidity = Number(market.liquidityUsd ?? 0);
+  const score = Math.log10(volume + 1) + Math.log10(liquidity + 1);
+  const normalized = Math.min(1, Math.max(0.4, score / 6));
+  return normalized;
+}
+
+function calculateMarketStrength(markets) {
+  const strengths = new Map();
+  if (!markets || markets.length === 0) {
+    return strengths;
+  }
+  const metrics = markets.map((market) => ({
+    key: market.id ?? market.slug ?? market.title,
+    volume: Number(market.volumeUsd ?? 0),
+    liquidity: Number(market.liquidityUsd ?? 0)
+  }));
+  const maxVolume = Math.max(1, ...metrics.map((m) => m.volume));
+  const maxLiquidity = Math.max(1, ...metrics.map((m) => m.liquidity));
+  for (const metric of metrics) {
+    const volumeScore = metric.volume / maxVolume;
+    const liquidityScore = metric.liquidity / maxLiquidity;
+    const combined = Math.round((volumeScore * 0.6 + liquidityScore * 0.4) * 100);
+    strengths.set(metric.key, combined);
+  }
+  return strengths;
+}
+
+function clampProbability(value) {
+  return Math.min(0.95, Math.max(0.05, value));
+}
+
+function calculatePnL(marketProbability, espnProbability, betAmount = 100) {
+  const marketProb = marketProbability;
   const costToBuy = marketProb * betAmount; // Cost to buy $100 worth of YES shares
   
   // If YES resolves: You get $100, profit = $100 - cost
@@ -224,6 +452,7 @@ function calculatePnL(market, espnProbability, betAmount = 100) {
   const roiIfNo = (lossIfNo / costToBuy) * 100;
   
   return {
+    marketProbability: marketProb,
     betAmount,
     costToBuy,
     profitIfYes,
@@ -235,160 +464,50 @@ function calculatePnL(market, espnProbability, betAmount = 100) {
   };
 }
 
-function calculateOverallMarketState(marketAnalyses, nflInsight) {
-  if (!marketAnalyses || marketAnalyses.length === 0) return null;
-  
-  // Calculate overall market state from all matching markets
-  const avgExpectedValue = marketAnalyses.reduce((sum, a) => sum + (a.pnl?.expectedValue || 0), 0) / marketAnalyses.length;
-  const avgConfidence = marketAnalyses.reduce((sum, a) => sum + (a.confidence || 0), 0) / marketAnalyses.length;
-  const positiveMarkets = marketAnalyses.filter(a => (a.pnl?.expectedValue || 0) > 0).length;
-  const totalMarkets = marketAnalyses.length;
-  
-  // Calculate market state score (0-100)
-  let state = 'neutral';
-  let recommendation = 'Markets are fairly priced';
-  let score = 50; // Start neutral
-  
-  if (avgExpectedValue > 0.1 && positiveMarkets >= totalMarkets * 0.6) {
-    state = 'favorable';
-    recommendation = 'Good time to bet - Markets show value opportunities';
-    score = Math.min(100, 60 + (avgExpectedValue * 100) + (avgConfidence * 30));
-  } else if (avgExpectedValue > 0.05) {
-    state = 'moderate';
-    recommendation = 'Some value exists - Selective betting recommended';
-    score = Math.min(85, 50 + (avgExpectedValue * 80) + (avgConfidence * 20));
-  } else if (avgExpectedValue < -0.05) {
-    state = 'expensive';
-    recommendation = 'Markets look expensive - Wait for better prices';
-    score = Math.max(0, 40 + (avgExpectedValue * 60));
-  } else {
-    state = 'neutral';
-    recommendation = 'Markets fairly priced - Limited edge';
-    score = 45 + (avgExpectedValue * 40);
-  }
-  
-  return {
-    state,
-    recommendation,
-    score: Math.max(0, Math.min(100, score)),
-    avgExpectedValue,
-    positiveMarkets,
-    totalMarkets
-  };
-}
-
-function renderMarketState(marketState) {
-  const stateEl = document.getElementById('market-state');
-  if (!stateEl || !marketState) {
-    if (stateEl) stateEl.innerHTML = '';
-    return;
-  }
-  
-  const stateColors = {
-    'favorable': 'var(--accent-2)',
-    'moderate': 'var(--accent-2)',
-    'neutral': 'var(--muted)',
-    'expensive': 'var(--accent)'
-  };
-  
-  const stateLabels = {
-    'favorable': 'Favorable',
-    'moderate': 'Moderate',
-    'neutral': 'Neutral',
-    'expensive': 'Expensive'
-  };
-  
-  const color = stateColors[marketState.state] || 'var(--muted)';
-  const scorePercent = Math.round(marketState.score);
-  
-  stateEl.innerHTML = `
-    <div class="market-state-card">
-      <div class="market-state-header">
-        <span class="market-state-label">NFL Market State</span>
-        <span class="market-state-badge" style="background: ${color}20; color: ${color};">
-          ${stateLabels[marketState.state]}
-        </span>
-      </div>
-      <div class="market-state-bar">
-        <div class="market-state-bar-fill" style="width: ${scorePercent}%; background: ${color};"></div>
-      </div>
-      <div class="market-state-rec">${marketState.recommendation}</div>
-      <div class="market-state-stats">
-        <span>${marketState.positiveMarkets}/${marketState.totalMarkets} markets favorable</span>
-        <span>Avg EV: ${marketState.avgExpectedValue >= 0 ? '+' : ''}$${marketState.avgExpectedValue.toFixed(2)}</span>
-      </div>
-    </div>
-  `;
-}
-
 function renderMarketAnalytics() {
   marketAnalyticsList.innerHTML = "";
-  const stateEl = document.getElementById('market-state');
-  if (stateEl) stateEl.innerHTML = '';
   
-  if (!state.nfl || !state.markets || state.markets.length === 0) {
-    marketAnalyticsList.innerHTML = '<div class="analytics-empty">No NFL insights or markets available. Search for an NFL game to see P&L analytics.</div>';
+  if (!state.markets || state.markets.length === 0) {
+    marketAnalyticsList.innerHTML = '<div class="analytics-empty">No markets available yet. Search for a game to pull Polymarket markets.</div>';
     return;
   }
 
-  // Get top 2 markets and calculate P&L based on ESPN data
-  const topMarkets = state.markets.slice(0, 2);
-  const marketAnalyses = topMarkets
-    .map(market => {
-      const analysis = analyzeMarketWithNflInsight(market, state.nfl);
-      if (!analysis) return null;
-      
-      const pnl = calculatePnL(market, analysis.espnProbability, 100);
-      const explanation = generatePlainEnglishExplanation(market, state.nfl, pnl);
-      
-      return { ...analysis, pnl, explanation };
-    })
-    .filter(a => a !== null);
+  const markets = state.nfl ? filterMarketsForMatchup(state.markets, state.nfl) : state.markets;
+  const topMarkets = markets.slice(0, 4);
 
-  if (marketAnalyses.length === 0) {
-    marketAnalyticsList.innerHTML = '<div class="analytics-empty">Markets don\'t match current NFL matchup. Try searching for a game with the teams shown in NFL Insight.</div>';
-    return;
-  }
-
-  // Render overall market state
-  const marketState = calculateOverallMarketState(marketAnalyses, state.nfl);
-  renderMarketState(marketState);
-
-  for (const analysis of marketAnalyses) {
+  for (const market of topMarkets) {
     const card = document.createElement("div");
     card.className = "pnl-card";
     
-    const pnl = analysis.pnl;
-    const marketProb = analysis.marketProbability;
+    const marketProb = resolveMarketProbability(market);
+    if (market.title?.toLowerCase().includes("seahawks")) {
+      console.log("[panel][debug] market data", {
+        title: market.title,
+        probability: market.probability,
+        outcomes: market.outcomes,
+        outcomePrices: market.outcomePrices
+      });
+      console.log("[panel][debug] resolved probability", marketProb);
+    }
     const probPercent = Math.round(marketProb * 100);
-    const profitColor = pnl.profitIfYes > 0 ? "var(--accent-2)" : "var(--accent)";
-    const lossColor = "var(--accent)";
-    
+    const yesPercent = Math.max(0, Math.min(100, probPercent));
+    const noPercent = 100 - yesPercent;
+    const volumeUsd = Number(market.volumeUsd ?? 0);
+    const liquidityUsd = Number(market.liquidityUsd ?? 0);
     card.innerHTML = `
       <div class="pnl-card-header">
-        <h3 class="pnl-market-title">${analysis.market.title}</h3>
+        <h3 class="pnl-market-title">${market.title}</h3>
         <div class="pnl-probability">${probPercent}% probability</div>
       </div>
-
+      <div class="pnl-probability">Vol $${volumeUsd.toLocaleString()} · Liq $${liquidityUsd.toLocaleString()}</div>
       <div class="pnl-quick-view">
         <div class="pnl-mini-graph">
-          <div class="pnl-mini-bar profit-mini" style="height: ${Math.min(100, (Math.abs(pnl.profitIfYes) / 50) * 100)}%; background: ${profitColor};">
-            <span class="pnl-mini-label">+$${pnl.profitIfYes.toFixed(0)}</span>
+          <div class="pnl-mini-bar profit-mini" style="height: ${yesPercent}%; background: var(--accent-2);">
+            <span class="pnl-mini-label">${yesPercent}%</span>
           </div>
-          <div class="pnl-mini-bar loss-mini" style="height: ${Math.min(100, (Math.abs(pnl.lossIfNo) / 50) * 100)}%; background: ${lossColor};">
-            <span class="pnl-mini-label">-$${Math.abs(pnl.lossIfNo).toFixed(0)}</span>
+          <div class="pnl-mini-bar loss-mini" style="height: ${noPercent}%; background: var(--accent);">
+            <span class="pnl-mini-label">${noPercent}%</span>
           </div>
-        </div>
-      </div>
-
-      <div class="pnl-numbers">
-        <div class="pnl-number">
-          <span class="pnl-number-label">Profit if YES</span>
-          <span class="pnl-number-value" style="color: ${profitColor}">+$${pnl.profitIfYes.toFixed(0)}</span>
-        </div>
-        <div class="pnl-number">
-          <span class="pnl-number-label">Loss if NO</span>
-          <span class="pnl-number-value" style="color: ${lossColor}">$${pnl.lossIfNo.toFixed(0)}</span>
         </div>
       </div>
     `;
