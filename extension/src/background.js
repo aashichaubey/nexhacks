@@ -177,31 +177,17 @@ function queueMarketSearch(context) {
 
 function buildSearchQueries(context) {
   const queries = new Set();
-  const base = context.query || normalizeTitle(context.title) || "";
-  if (base) {
-    queries.add(base);
+  if (context.source === "google_search" && context.query) {
+    const cleaned = cleanSearchQuery(context.query);
+    if (cleaned) {
+      queries.add(cleaned);
+    }
+    return Array.from(queries).filter((q) => q.length > 2);
   }
+
   const keywords = (context.keywords ?? []).slice(0, 8).join(" ");
   if (keywords) {
     queries.add(keywords);
-  }
-
-  if (context.url?.includes("nba.com")) {
-    queries.add(`${base} NBA`);
-    queries.add(`${base} basketball`);
-    queries.add(`${base} odds`);
-  }
-
-  const match =
-    base.match(/([a-zA-Z\\s]+)\\s+vs\\.?\\s+([a-zA-Z\\s]+)/i) ||
-    base.match(/([a-zA-Z\\s]+)\\s+v\\.?\\s+([a-zA-Z\\s]+)/i);
-  if (match) {
-    const teamA = match[1].trim();
-    const teamB = match[2].trim();
-    const headToHead = `${teamA} ${teamB}`;
-    queries.add(`${headToHead} moneyline`);
-    queries.add(`${headToHead} spread`);
-    queries.add(`${headToHead} total`);
   }
 
   return Array.from(queries).filter((q) => q.length > 2);
@@ -215,6 +201,15 @@ function normalizeTitle(title) {
     .replace(/\\|\\s*NBA\\.com/i, "")
     .replace(/\\s+\\|\\s+/g, " ")
     .trim();
+}
+
+function cleanSearchQuery(query) {
+  const stripped = query
+    .toLowerCase()
+    .replace(/\b(score|scores|today|live|highlights|stats|stream)\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return stripped;
 }
 
 async function searchPolymarket(query) {
@@ -254,7 +249,9 @@ async function searchPolymarketWeb(query) {
       market.name ??
       market.slug ??
       "Polymarket market",
-    url: market.url ?? `${POLYMARKET_BASE}/market/${market.slug ?? ""}`,
+    url:
+      market.url ??
+      (market.slug ? `${POLYMARKET_BASE}/market/${market.slug}` : POLYMARKET_BASE),
     probability: Number(market.probability ?? market.lastPrice ?? 0.5),
     volumeUsd: Number(market.volume ?? market.volumeUsd ?? 0),
     liquidityUsd: Number(market.liquidity ?? market.liquidityUsd ?? 0),
@@ -269,7 +266,7 @@ async function searchPolymarketGamma(query) {
   url.searchParams.set("search", query);
   url.searchParams.set("active", "true");
   url.searchParams.set("closed", "false");
-  url.searchParams.set("limit", "6");
+  url.searchParams.set("limit", "50");
 
   const res = await fetch(url.toString());
   if (!res.ok) {
@@ -277,10 +274,17 @@ async function searchPolymarketGamma(query) {
   }
   const markets = await res.json();
   console.log("[extension][debug] gamma response size", markets?.length ?? 0);
-  return markets.map((market) => ({
+  const queryTokens = normalizeQueryTokens(query);
+  const scored = markets
+    .map((market) => ({ market, score: scoreMarketMatch(queryTokens, market) }))
+    .filter((entry) => entry.score > 0)
+    .sort((a, b) => b.score - a.score);
+  return scored.map(({ market }) => ({
     id: market.id ?? market.slug ?? query,
     title: market.question ?? market.slug ?? "Polymarket market",
-    url: market.url ?? "https://polymarket.com",
+    url:
+      market.url ??
+      (market.slug ? `${POLYMARKET_BASE}/market/${market.slug}` : POLYMARKET_BASE),
     probability: parseProbability(market),
     volumeUsd: market.volume ?? 0,
     liquidityUsd: market.liquidity ?? 0,
@@ -325,4 +329,34 @@ function parseTimeRemainingMinutes(market) {
     return 0;
   }
   return Math.max(0, Math.round((endMs - Date.now()) / 60000));
+}
+
+function normalizeQueryTokens(query) {
+  const stopwords = new Set([
+    "the",
+    "and",
+    "or",
+    "vs",
+    "v",
+    "score",
+    "scores",
+    "game",
+    "games",
+    "live",
+    "highlights"
+  ]);
+  return query
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2 && !stopwords.has(token));
+}
+
+function scoreMarketMatch(queryTokens, market) {
+  if (queryTokens.length === 0) {
+    return 1;
+  }
+  const haystack =
+    `${market.question ?? ""} ${market.slug ?? ""} ${market.description ?? ""}`.toLowerCase();
+  return queryTokens.filter((token) => haystack.includes(token)).length;
 }

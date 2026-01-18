@@ -1,9 +1,75 @@
+const STOPWORDS = new Set([
+  "the",
+  "a",
+  "an",
+  "and",
+  "or",
+  "but",
+  "of",
+  "to",
+  "in",
+  "on",
+  "for",
+  "with",
+  "by",
+  "at",
+  "from",
+  "as",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "this",
+  "that",
+  "it",
+  "its",
+  "you",
+  "your",
+  "we",
+  "they",
+  "their",
+  "our",
+  "about",
+  "google",
+  "search",
+  "score",
+  "scores",
+  "game",
+  "games",
+  "live",
+  "highlights",
+  "highlights",
+  "vs",
+  "v"
+]);
+
+function normalizeTokens(text) {
+  const seen = new Set();
+  const tokens = text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length > 2 && !STOPWORDS.has(t));
+  const unique = [];
+  for (const token of tokens) {
+    if (!seen.has(token)) {
+      seen.add(token);
+      unique.push(token);
+    }
+  }
+  return unique;
+}
+
 function extractKeywords() {
   const metaKeywords = Array.from(
     document.querySelectorAll("meta[name='keywords']")
   )
     .map((el) => el.content)
     .join(" ");
+  const metaDescription =
+    document.querySelector("meta[name='description']")?.content ?? "";
+  const heading = document.querySelector("h1")?.textContent ?? "";
 
   const title = document.title ?? "";
   const url = new URL(window.location.href);
@@ -12,11 +78,10 @@ function extractKeywords() {
   const isYouTubeWatch =
     url.hostname.includes("youtube.com") && url.pathname === "/watch";
 
-  const raw = [metaKeywords, title, query].join(" ");
-  const tokens = raw
-    .split(/\s+/)
-    .map((t) => t.trim())
-    .filter(Boolean);
+  const raw = isGoogleSearch
+    ? query
+    : [metaKeywords, metaDescription, heading, title].join(" ");
+  const tokens = normalizeTokens(raw);
 
   return {
     keywords: tokens.slice(0, 25),
