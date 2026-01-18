@@ -3,3 +3,4 @@
 .env
 .demo-*.log
 .demo-pids
+.env
