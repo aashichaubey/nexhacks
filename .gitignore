@@ -4,3 +4,10 @@
 .demo-*.log
 .demo-pids
 .env
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Platform-specific native modules (auto-installed per platform)
+**/@livekit/rtc-node-*/

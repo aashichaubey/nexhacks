@@ -1,5 +1,3 @@
-import { renderPayoffCurve } from "./tinychart.js";
-
 const marketList = document.getElementById("market-list");
 const marketAnalyticsList = document.getElementById("market-analytics-list");
 const wsStatus = document.getElementById("ws-status");
@@ -10,9 +8,6 @@ const contextTag = document.getElementById("context-tag");
 const nflSummary = document.getElementById("nfl-summary");
 const nflList = document.getElementById("nfl-list");
 const nflSource = document.getElementById("nfl-source");
-const liveFeedList = document.getElementById("live-feed-list");
-const payoffChart = document.getElementById("payoff-chart");
-const payoffLabel = document.getElementById("payoff-label");
 
 const port = chrome.runtime.connect();
 
@@ -21,22 +16,6 @@ const state = {
   transcripts: [],
   nfl: null
 };
-
-function renderLiveFeed() {
-  liveFeedList.innerHTML = "";
-  for (const item of state.transcripts) {
-    const li = document.createElement("li");
-    li.className = "feed-item";
-    li.innerHTML = `
-      <div>${item.transcript}</div>
-      <div class="feed-meta">
-        <span>${Math.round(item.sttConfidence * 100)}% STT</span>
-        <span>${new Date(item.windowEnd).toLocaleTimeString()}</span>
-      </div>
-    `;
-    liveFeedList.appendChild(li);
-  }
-}
 
 function renderNflInsight() {
   nflList.innerHTML = "";
@@ -417,34 +396,6 @@ function renderMarketAnalytics() {
   }
 }
 
-function buildPayoffSeries(probability) {
-  const points = [];
-  const base = 1 - probability;
-  for (let i = 0; i <= 20; i += 1) {
-    const t = i / 20;
-    const y = Math.max(0.05, base + probability * Math.sin(t * Math.PI));
-    points.push({ x: t, y });
-  }
-  return points;
-}
-
-function renderPayoff(markets) {
-  const primary = markets[0];
-  if (!primary) {
-    payoffLabel.textContent = "No market yet";
-    renderPayoffCurve(payoffChart, buildPayoffSeries(0.5), {
-      lineColor: "#3cf2c3",
-      label: "Waiting for market..."
-    });
-    return;
-  }
-  payoffLabel.textContent = `${Math.round(primary.probability * 100)}% implied`;
-  renderPayoffCurve(payoffChart, buildPayoffSeries(primary.probability), {
-    lineColor: "#ff8a2b",
-    label: primary.title.slice(0, 28)
-  });
-}
-
 function renderContext(context) {
   if (!context) {
     contextTitle.textContent = "No live context detected yet.";
@@ -475,8 +426,6 @@ function applySnapshot(snapshot) {
   renderContext(snapshot.context ?? null);
   renderNflInsight();
   renderMarkets();
-  renderLiveFeed();
-  renderPayoff(state.markets);
   renderMarketAnalytics();
 }
 
@@ -486,17 +435,14 @@ port.onMessage.addListener((message) => {
   }
   if (message.type === "transcript") {
     state.transcripts = [message.payload, ...state.transcripts].slice(0, 12);
-    renderLiveFeed();
   }
   if (message.type === "market") {
     state.markets = [message.payload, ...state.markets].slice(0, 4);
     renderMarkets();
-    renderPayoff(state.markets);
   }
   if (message.type === "markets_refresh") {
     state.markets = message.payload.slice(0, 4);
     renderMarkets();
-    renderPayoff(state.markets);
     renderMarketAnalytics();
   }
   if (message.type === "nfl_insight") {

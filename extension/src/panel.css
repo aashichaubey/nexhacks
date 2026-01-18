@@ -122,38 +122,12 @@ h1 {
   color: var(--muted);
 }
 
-.live-feed,
-.charts {
-  background: var(--card);
-  border: 1px solid var(--stroke);
-  border-radius: 16px;
-  padding: 16px;
-}
-
-.live-feed ul,
 .signals ul {
   list-style: none;
   padding: 0;
   margin: 0;
   display: grid;
   gap: 10px;
-}
-
-.feed-item {
-  display: grid;
-  gap: 4px;
-  padding: 10px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  background: rgba(255, 255, 255, 0.02);
-  font-size: 13px;
-}
-
-.feed-meta {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 11px;
 }
 
 .context {
@@ -199,13 +173,6 @@ h2 {
 .market-grid {
   display: grid;
   gap: 12px;
-}
-
-canvas {
-  width: 100%;
-  height: auto;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.02);
 }
 
 .market-card {

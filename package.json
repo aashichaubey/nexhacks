@@ -9,7 +9,8 @@
     "extension",
     "shared"
   ],
-  "dependencies": {
-    "@livekit/rtc-node-darwin-arm64": "^0.13.24"
+  "optionalDependencies": {
+    "@livekit/rtc-node-darwin-arm64": "^0.13.24",
+    "@livekit/rtc-node-win32-x64-msvc": "^0.13.24"
   }
 }
