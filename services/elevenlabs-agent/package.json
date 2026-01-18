@@ -1,0 +1,9 @@
+{
+  "name": "@nexhacks/elevenlabs-agent",
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}
