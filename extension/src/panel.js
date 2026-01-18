@@ -57,12 +57,14 @@ function renderMarkets() {
   for (const market of state.markets) {
     const card = document.createElement("div");
     card.className = "market-card";
+    const volumeUsd = Number(market.volumeUsd ?? 0);
+    const liquidityUsd = Number(market.liquidityUsd ?? 0);
     card.innerHTML = `
       <div class="pill">${Math.round(market.probability * 100)}% prob</div>
       <h3>${market.title}</h3>
       <div class="market-stats">
-        <div>Vol $${market.volumeUsd.toLocaleString()}</div>
-        <div>Liq $${market.liquidityUsd.toLocaleString()}</div>
+        <div>Vol $${volumeUsd.toLocaleString()}</div>
+        <div>Liq $${liquidityUsd.toLocaleString()}</div>
         <div>${market.timeRemainingMinutes}m left</div>
       </div>
       <a href="${market.url}" target="_blank" rel="noreferrer">Open on Polymarket</a>
@@ -123,6 +125,9 @@ function applySnapshot(snapshot) {
   state.signals = snapshot.signals ?? [];
   state.markets = snapshot.markets ?? [];
   state.transcripts = snapshot.transcripts ?? [];
+  if (snapshot.wsStatus) {
+    wsStatus.textContent = snapshot.wsStatus;
+  }
   renderContext(snapshot.context ?? null);
   renderSignals();
   renderMarkets();

@@ -3,7 +3,7 @@
   "name": "NexHacks Polymarket Companion",
   "version": "0.1.0",
   "description": "LiveKit + Gemini + Polymarket assistive analytics for live content.",
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
     "service_worker": "src/background.js",

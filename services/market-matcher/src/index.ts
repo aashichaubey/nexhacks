@@ -18,10 +18,11 @@ type GammaMarket = {
   active?: boolean;
 };
 
-const hubUrl = process.env.WS_HUB_URL ?? "ws://localhost:8787";
+const hubUrl = process.env.WS_HUB_URL ?? "ws://127.0.0.1:8788";
 const gammaBase =
   process.env.POLYMARKET_GAMMA_BASE ?? "https://gamma-api.polymarket.com";
-const ws = new WebSocket(hubUrl);
+let ws: WebSocket | null = null;
+let reconnectTimer: NodeJS.Timeout | null = null;
 
 const REQUEST_TIMEOUT_MS = 3500;
 
@@ -132,35 +133,53 @@ async function searchMarkets(signal: Signal): Promise<MarketCandidate[]> {
   });
 }
 
-ws.on("open", () => {
-  console.log(`[market-matcher] connected to ${hubUrl}`);
-});
+function connectHub() {
+  ws = new WebSocket(hubUrl);
 
-ws.on("message", async (data) => {
-  try {
-    const envelope = JSON.parse(data.toString()) as Envelope<Signal>;
-    if (envelope.type !== "signal") {
-      return;
-    }
+  ws.on("open", () => {
+    console.log(`[market-matcher] connected to ${hubUrl}`);
+  });
 
-    const markets = await searchMarkets(envelope.payload);
-    for (const market of markets) {
-      const out: Envelope<MarketCandidate> = {
-        type: "market",
-        payload: market,
-        ts: new Date().toISOString()
-      };
-      ws.send(JSON.stringify(out));
+  ws.on("message", async (data) => {
+    try {
+      const envelope = JSON.parse(data.toString()) as Envelope<Signal>;
+      if (envelope.type !== "signal") {
+        return;
+      }
+
+      const markets = await searchMarkets(envelope.payload);
+      for (const market of markets) {
+        const out: Envelope<MarketCandidate> = {
+          type: "market",
+          payload: market,
+          ts: new Date().toISOString()
+        };
+        ws?.send(JSON.stringify(out));
+      }
+    } catch (err) {
+      console.error("[market-matcher] failed to handle signal", err);
     }
-  } catch (err) {
-    console.error("[market-matcher] failed to handle signal", err);
+  });
+
+  ws.on("close", () => {
+    console.log("[market-matcher] disconnected from ws hub");
+    scheduleReconnect();
+  });
+
+  ws.on("error", (err) => {
+    console.error("[market-matcher] ws error", err);
+    ws?.close();
+  });
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) {
+    return;
   }
-});
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connectHub();
+  }, 1000);
+}
 
-ws.on("close", () => {
-  console.log("[market-matcher] disconnected from ws hub");
-});
-
-ws.on("error", (err) => {
-  console.error("[market-matcher] ws error", err);
-});
+connectHub();

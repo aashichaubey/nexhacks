@@ -1,21 +1,18 @@
 import WebSocket from "ws";
 import { v4 as uuidv4 } from "uuid";
-import { registerGlobals } from "@livekit/rtc-node";
 import {
   Room,
   RoomEvent,
   TrackKind,
   type TranscriptionSegment
-} from "livekit-client";
+} from "@livekit/rtc-node";
 import type { Envelope, TranscriptPacket } from "@nexhacks/shared";
 
-const hubUrl = process.env.WS_HUB_URL ?? "ws://localhost:8787";
+const hubUrl = process.env.WS_HUB_URL ?? "ws://127.0.0.1:8788";
 const livekitUrl = process.env.LIVEKIT_URL ?? "";
 const livekitToken = process.env.LIVEKIT_TOKEN ?? "";
 const transcriptSource = process.env.LIVEKIT_TRANSCRIPTION_SOURCE ?? "livekit";
 const ws = new WebSocket(hubUrl);
-
-registerGlobals();
 
 const room = new Room({
   adaptiveStream: true,

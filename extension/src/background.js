@@ -1,12 +1,14 @@
-const HUB_URL = "ws://localhost:8787";
-const GAMMA_BASE =
-  "https://gamma-api.polymarket.com";
+const HUB_URL = "ws://127.0.0.1:8788";
+const POLYMARKET_BASE = "https://polymarket.com";
+const GAMMA_BASE = "https://gamma-api.polymarket.com";
 let ws;
 const state = {
   signals: [],
   markets: [],
   context: null,
-  transcripts: []
+  transcripts: [],
+  wsStatus: "disconnected",
+  wsLastChange: null
 };
 
 const ports = new Set();
@@ -16,7 +18,7 @@ function connectHub() {
   ws = new WebSocket(HUB_URL);
 
   ws.addEventListener("open", () => {
-    broadcast({ type: "ws_status", payload: "connected" });
+    updateWsStatus("connected");
   });
 
   ws.addEventListener("message", (event) => {
@@ -40,12 +42,12 @@ function connectHub() {
   });
 
   ws.addEventListener("close", () => {
-    broadcast({ type: "ws_status", payload: "disconnected" });
+    updateWsStatus("disconnected");
     setTimeout(connectHub, 2000);
   });
 
   ws.addEventListener("error", () => {
-    broadcast({ type: "ws_status", payload: "error" });
+    updateWsStatus("error");
     ws.close();
   });
 }
@@ -59,6 +61,7 @@ function broadcast(message) {
 chrome.runtime.onConnect.addListener((port) => {
   ports.add(port);
   port.postMessage({ type: "snapshot", payload: state });
+  hydrateContextFromActiveTab();
   port.onDisconnect.addListener(() => ports.delete(port));
 });
 
@@ -66,7 +69,14 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "request_snapshot") {
     sendResponse({ ok: true, payload: state });
   }
+  if (message?.type === "request_context") {
+    hydrateContextFromActiveTab().then(() => {
+      sendResponse({ ok: true, payload: state.context });
+    });
+    return true;
+  }
   if (message?.type === "page_context") {
+    console.log("[extension][debug] page_context received", message.payload);
     state.context = message.payload;
     chrome.storage.local.set({ lastPageContext: message.payload });
     broadcast({ type: "context", payload: message.payload });
@@ -77,6 +87,70 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 connectHub();
 
+function updateWsStatus(status) {
+  state.wsStatus = status;
+  state.wsLastChange = new Date().toISOString();
+  broadcast({ type: "ws_status", payload: status });
+}
+
+async function hydrateContextFromActiveTab() {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true
+    });
+    if (!tab?.url) {
+      return;
+    }
+    const context = buildContextFromTab(tab);
+    state.context = context;
+    broadcast({ type: "context", payload: context });
+    queueMarketSearch(context);
+  } catch (err) {
+    console.warn("[extension] failed to read active tab", err);
+  }
+}
+
+function buildContextFromTab(tab) {
+  let query = "";
+  let source = "web";
+  let isLiveHint = false;
+  const title = tab.title ?? "";
+  try {
+    const url = new URL(tab.url);
+    const isGoogleSearch =
+      url.hostname.includes("google.") && url.pathname === "/search";
+    const isYouTubeWatch =
+      url.hostname.includes("youtube.com") && url.pathname === "/watch";
+    if (isGoogleSearch) {
+      query = url.searchParams.get("q") ?? "";
+      source = "google_search";
+    } else if (isYouTubeWatch) {
+      source = "youtube";
+    }
+    isLiveHint = /\\blive\\b/i.test(title);
+  } catch {
+    // ignore url parse
+  }
+
+  const keywords = [title, query]
+    .join(" ")
+    .split(/\\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .slice(0, 25);
+
+  return {
+    url: tab.url ?? "",
+    title,
+    keywords,
+    query,
+    source,
+    isLiveHint,
+    timestamp: new Date().toISOString()
+  };
+}
+
 function queueMarketSearch(context) {
   if (!context) {
     return;
@@ -84,12 +158,14 @@ function queueMarketSearch(context) {
   clearTimeout(searchTimeout);
   searchTimeout = setTimeout(() => {
     const queries = buildSearchQueries(context);
+    console.log("[extension][debug] market queries", queries);
     if (queries.length === 0) {
       return;
     }
     Promise.all(queries.map((query) => searchPolymarket(query)))
       .then((results) => {
         const merged = dedupeMarkets(results.flat());
+        console.log("[extension][debug] market results", merged);
         state.markets = merged.concat(state.markets).slice(0, 8);
         broadcast({ type: "markets_refresh", payload: merged });
       })
@@ -101,13 +177,19 @@ function queueMarketSearch(context) {
 
 function buildSearchQueries(context) {
   const queries = new Set();
-  const base = context.query || context.title || "";
+  const base = context.query || normalizeTitle(context.title) || "";
   if (base) {
     queries.add(base);
   }
   const keywords = (context.keywords ?? []).slice(0, 8).join(" ");
   if (keywords) {
     queries.add(keywords);
+  }
+
+  if (context.url?.includes("nba.com")) {
+    queries.add(`${base} NBA`);
+    queries.add(`${base} basketball`);
+    queries.add(`${base} odds`);
   }
 
   const match =
@@ -125,7 +207,64 @@ function buildSearchQueries(context) {
   return Array.from(queries).filter((q) => q.length > 2);
 }
 
+function normalizeTitle(title) {
+  if (!title) {
+    return "";
+  }
+  return title
+    .replace(/\\|\\s*NBA\\.com/i, "")
+    .replace(/\\s+\\|\\s+/g, " ")
+    .trim();
+}
+
 async function searchPolymarket(query) {
+  try {
+    const web = await searchPolymarketWeb(query);
+    if (web.length > 0) {
+      return web;
+    }
+  } catch (err) {
+    console.warn("[extension] polymarket web search failed", err);
+  }
+  return searchPolymarketGamma(query);
+}
+
+async function searchPolymarketWeb(query) {
+  const url = new URL(`${POLYMARKET_BASE}/api/search`);
+  url.searchParams.set("query", query);
+
+  const res = await fetch(url.toString());
+  if (!res.ok) {
+    return [];
+  }
+  const data = await res.json();
+  const markets = Array.isArray(data)
+    ? data
+    : Array.isArray(data?.markets)
+      ? data.markets
+      : Array.isArray(data?.results)
+        ? data.results
+        : [];
+
+  return markets.map((market) => ({
+    id: market.id ?? market.slug ?? query,
+    title:
+      market.question ??
+      market.title ??
+      market.name ??
+      market.slug ??
+      "Polymarket market",
+    url: market.url ?? `${POLYMARKET_BASE}/market/${market.slug ?? ""}`,
+    probability: Number(market.probability ?? market.lastPrice ?? 0.5),
+    volumeUsd: Number(market.volume ?? market.volumeUsd ?? 0),
+    liquidityUsd: Number(market.liquidity ?? market.liquidityUsd ?? 0),
+    timeRemainingMinutes: 0,
+    matchedSignals: [],
+    ts: new Date().toISOString()
+  }));
+}
+
+async function searchPolymarketGamma(query) {
   const url = new URL(`${GAMMA_BASE}/markets`);
   url.searchParams.set("search", query);
   url.searchParams.set("active", "true");
@@ -137,6 +276,7 @@ async function searchPolymarket(query) {
     throw new Error(`Gamma error ${res.status}`);
   }
   const markets = await res.json();
+  console.log("[extension][debug] gamma response size", markets?.length ?? 0);
   return markets.map((market) => ({
     id: market.id ?? market.slug ?? query,
     title: market.question ?? market.slug ?? "Polymarket market",
@@ -162,8 +302,8 @@ function dedupeMarkets(markets) {
 }
 
 function parseProbability(market) {
-  const outcomes = market.outcomes ?? [];
-  const prices = market.outcomePrices ?? [];
+  const outcomes = Array.isArray(market.outcomes) ? market.outcomes : [];
+  const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
   if (outcomes.length === 0 || prices.length === 0) {
     return 0.5;
   }
