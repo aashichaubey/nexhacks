@@ -82,7 +82,8 @@ h1 {
 .signals,
 .markets,
 .market-analytics,
-.pnl-dashboard {
+.pnl-dashboard,
+.comparative-pnl {
   background: var(--card);
   border: 1px solid var(--stroke);
   border-radius: 16px;
@@ -147,6 +148,42 @@ h1 {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.tab-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.tab-button {
+  padding: 4px 10px;
+  border: 1px solid var(--stroke);
+  background: transparent;
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: var(--font);
+}
+
+.tab-button:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.tab-button.active {
+  background: rgba(60, 242, 195, 0.15);
+  border-color: rgba(60, 242, 195, 0.3);
+  color: var(--accent-2);
+}
+
+#pnl-dashboard-list,
+#comparative-pnl-list {
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 h2 {
@@ -672,6 +709,9 @@ h2 {
   border: 1px solid var(--stroke);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
   animation: rise 0.4s ease-out;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .pnl-compact-header {
@@ -684,6 +724,9 @@ h2 {
   font-weight: 600;
   color: var(--text);
   line-height: 1.3;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  max-width: 100%;
 }
 
 .pnl-compact-price {
@@ -745,4 +788,70 @@ h2 {
   .pnl-compact-stats {
     grid-template-columns: repeat(2, 1fr);
   }
+}
+
+.comparative-card {
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.comparative-table-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.comparative-row-compact {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  font-size: 12px;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.comparative-market-compact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.comparative-rank {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.comparative-title {
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.comparative-metrics-compact {
+  display: flex;
+  gap: 10px;
+  flex-shrink: 0;
+  font-size: 11px;
+}
+
+.comparative-value {
+  color: var(--muted);
+  font-family: 'Monaco', 'Courier New', monospace;
+  white-space: nowrap;
 }

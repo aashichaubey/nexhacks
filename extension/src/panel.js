@@ -1,6 +1,7 @@
 const marketList = document.getElementById("market-list");
 const marketAnalyticsList = document.getElementById("market-analytics-list");
 const pnlDashboardList = document.getElementById("pnl-dashboard-list");
+const comparativePnlList = document.getElementById("comparative-pnl-list");
 const wsStatus = document.getElementById("ws-status");
 const refreshBtn = document.getElementById("refresh");
 const contextTitle = document.getElementById("context-title");
@@ -17,7 +18,8 @@ const state = {
   transcripts: [],
   nfl: null,
   priceHistory: new Map(), // market id -> array of {price, timestamp}
-  tradeActivity: new Map() // market id -> array of {volume, timestamp, volumeChange}
+  tradeActivity: new Map(), // market id -> array of {volume, timestamp, volumeChange}
+  entryPrices: new Map() // market id -> entry price (first price seen)
 };
 
 function renderNflInsight() {
@@ -462,6 +464,11 @@ function updatePriceHistory(market) {
   
   if (shouldAdd) {
     history.push({ price: currentPrice, volume: currentVolume, timestamp: now });
+    
+    // Track entry price (first price we see for this market)
+    if (!state.entryPrices.has(marketId)) {
+      state.entryPrices.set(marketId, currentPrice);
+    }
   }
   
   // Keep last 60 data points (about 10 minutes at 10s intervals)
@@ -1113,27 +1120,35 @@ function renderContext(context) {
   contextTag.textContent = context.query ? "Search detected" : "Live browsing";
 }
 
-function calculatePnLFromPrices(market, shares = 1) {
+function calculatePnLFromPrices(market, shares = 1, entryPrice = null) {
   const marketProb = resolveMarketProbability(market);
   const yesPrice = marketProb; // Price = probability
   const noPrice = 1 - marketProb;
   
-  // Polymarket: 1 share costs the price, resolves to $1 or $0
-  // Cost to buy 1 YES share at current price
-  const costToBuyYes = yesPrice * shares;
+  // Entry price: use provided entry or assume buying at current price
+  const entry = entryPrice !== null ? entryPrice : yesPrice;
   
-  // Cost to buy 1 NO share at current price
+  // Polymarket: 1 share costs the price, resolves to $1 or $0
+  // Cost to buy 1 YES share at entry price
+  const costToBuyYes = entry * shares;
+  
+  // Cost to buy 1 NO share at current price (for reference)
   const costToBuyNo = noPrice * shares;
   
-  // If you buy YES at price p:
-  // - Final P&L if YES happens: 1 - p (you get $1, paid p)
-  // - Final P&L if NO happens: -p (you get $0, paid p)
-  const finalPnLIfYesWins = (1 - yesPrice) * shares;
-  const finalPnLIfNoWins = -yesPrice * shares; // loss
+  // ===== SCENARIO 1: EARLY EXIT (Unrealized P&L) =====
+  // If you sell NOW at current market price:
+  // Unrealized P&L = current_price - entry_price
+  const unrealizedPnL = (yesPrice - entry) * shares;
+  const unrealizedValue = yesPrice * shares; // Current value of position
   
-  // If you buy NO at price p:
-  // - Final P&L if NO happens: 1 - p (you get $1, paid p)
-  // - Final P&L if YES happens: -p (you get $0, paid p)
+  // ===== SCENARIO 2: LATE/RESOLUTION (Final P&L) =====
+  // If you hold until resolution:
+  // - Final P&L if YES happens: 1 - entry (you get $1, paid entry)
+  // - Final P&L if NO happens: -entry (you get $0, paid entry)
+  const finalPnLIfYesWins = (1 - entry) * shares;
+  const finalPnLIfNoWins = -entry * shares; // loss
+  
+  // If you buy NO at current price (for reference):
   const finalPnLIfNoWinsFromNo = (1 - noPrice) * shares;
   const finalPnLIfYesWinsFromNo = -noPrice * shares;
   
@@ -1142,18 +1157,23 @@ function calculatePnLFromPrices(market, shares = 1) {
     marketProbability: marketProb,
     yesPrice,
     noPrice,
+    entryPrice: entry,
     shares,
     costToBuyYes,
     costToBuyNo,
-    // Final P&L at resolution (buying YES at current price)
+    // Early exit scenario (unrealized)
+    unrealizedPnL,
+    unrealizedValue,
+    // Late/resolution scenarios (final)
     finalPnLIfYesWins,
     finalPnLIfNoWins,
-    // Final P&L at resolution (buying NO at current price)
+    // Reference: buying NO
     finalPnLIfNoWinsFromNo,
     finalPnLIfYesWinsFromNo,
     // ROI calculations
-    roiIfYesWins: yesPrice > 0 ? (finalPnLIfYesWins / costToBuyYes) * 100 : 0,
-    roiIfNoWins: noPrice > 0 ? (finalPnLIfNoWinsFromNo / costToBuyNo) * 100 : 0
+    roiIfYesWins: entry > 0 ? (finalPnLIfYesWins / costToBuyYes) * 100 : 0,
+    roiIfNoWins: noPrice > 0 ? (finalPnLIfNoWinsFromNo / costToBuyNo) * 100 : 0,
+    roiUnrealized: entry > 0 ? (unrealizedPnL / costToBuyYes) * 100 : 0
   };
 }
 
@@ -1169,7 +1189,9 @@ function renderPnLDashboard() {
   const topMarkets = markets.slice(0, 4);
 
   for (const market of topMarkets) {
-    const pnl = calculatePnLFromPrices(market, 1); // 1 share
+    const marketId = market.id ?? market.slug ?? market.title;
+    const entryPrice = state.entryPrices.get(marketId) || null; // Use tracked entry price
+    const pnl = calculatePnLFromPrices(market, 1, entryPrice); // 1 share, with entry price
     const card = document.createElement("div");
     card.className = "pnl-compact-card";
     
@@ -1181,9 +1203,6 @@ function renderPnLDashboard() {
     const yesPriceDollars = pnl.yesPrice.toFixed(2);
     const noPriceDollars = pnl.noPrice.toFixed(2);
     
-    // Calculate expected value: (prob * finalPnLIfYes) + ((1-prob) * finalPnLIfNo)
-    const expectedValue = (pnl.marketProbability * pnl.finalPnLIfYesWins) + ((1 - pnl.marketProbability) * pnl.finalPnLIfNoWins);
-    
     card.innerHTML = `
       <div class="pnl-compact-header">
         <h3 class="pnl-compact-title">${market.title}</h3>
@@ -1191,26 +1210,123 @@ function renderPnLDashboard() {
       </div>
       <div class="pnl-compact-stats">
         <div class="pnl-stat">
-          <span class="pnl-stat-label">Cost</span>
+          <span class="pnl-stat-label">Entry Cost</span>
           <span class="pnl-stat-value">$${pnl.costToBuyYes.toFixed(2)}</span>
         </div>
         <div class="pnl-stat">
-          <span class="pnl-stat-label">If YES</span>
+          <span class="pnl-stat-label">Early Exit</span>
+          <span class="pnl-stat-value ${pnl.unrealizedPnL >= 0 ? 'pnl-positive' : 'pnl-negative'}">${pnl.unrealizedPnL >= 0 ? '+' : ''}$${pnl.unrealizedPnL.toFixed(2)}</span>
+        </div>
+        <div class="pnl-stat">
+          <span class="pnl-stat-label">If YES Resolves</span>
           <span class="pnl-stat-value pnl-positive">+$${pnl.finalPnLIfYesWins.toFixed(2)}</span>
         </div>
         <div class="pnl-stat">
-          <span class="pnl-stat-label">If NO</span>
+          <span class="pnl-stat-label">If NO Resolves</span>
           <span class="pnl-stat-value pnl-negative">$${pnl.finalPnLIfNoWins.toFixed(2)}</span>
-        </div>
-        <div class="pnl-stat">
-          <span class="pnl-stat-label">EV</span>
-          <span class="pnl-stat-value ${expectedValue >= 0 ? 'pnl-positive' : 'pnl-negative'}">${expectedValue >= 0 ? '+' : ''}$${expectedValue.toFixed(2)}</span>
         </div>
       </div>
     `;
     
     pnlDashboardList.appendChild(card);
   }
+}
+
+// Calculate comparative payoff analysis across related markets
+function calculateComparativePayoffs(markets) {
+  if (!markets || markets.length < 2) {
+    return null;
+  }
+  
+  const marketAnalyses = markets.map(market => {
+    const marketId = market.id ?? market.slug ?? market.title;
+    const entryPrice = state.entryPrices.get(marketId) || null;
+    const pnl = calculatePnLFromPrices(market, 1, entryPrice);
+    const marketProb = pnl.marketProbability;
+    const riskRewardRatio = pnl.costToBuyYes > 0 ? pnl.finalPnLIfYesWins / Math.abs(pnl.finalPnLIfNoWins) : 0;
+    const roiIfWins = pnl.roiIfYesWins;
+    
+    return {
+      market,
+      title: market.title,
+      marketProb,
+      riskRewardRatio,
+      roiIfWins,
+      costToBuy: pnl.costToBuyYes,
+      profitIfYes: pnl.finalPnLIfYesWins,
+      lossIfNo: pnl.finalPnLIfNoWins,
+      unrealizedPnL: pnl.unrealizedPnL
+    };
+  });
+  
+  const bestRiskReward = marketAnalyses.reduce((best, current) => 
+    current.riskRewardRatio > best.riskRewardRatio ? current : best
+  , marketAnalyses[0]);
+  
+  const bestROI = marketAnalyses.reduce((best, current) => 
+    current.roiIfWins > best.roiIfWins ? current : best
+  , marketAnalyses[0]);
+  
+  const sortedByRiskReward = [...marketAnalyses].sort((a, b) => b.riskRewardRatio - a.riskRewardRatio);
+  
+  return {
+    markets: marketAnalyses,
+    bestRiskReward,
+    bestROI,
+    sortedByRiskReward,
+    marketCount: markets.length
+  };
+}
+
+function renderComparativePayoff() {
+  comparativePnlList.innerHTML = "";
+  
+  if (!state.markets || state.markets.length < 2) {
+    comparativePnlList.innerHTML = '<div class="analytics-empty">Need 2+ markets to compare.</div>';
+    return;
+  }
+  
+  const markets = state.nfl ? filterMarketsForMatchup(state.markets, state.nfl) : state.markets;
+  
+  if (markets.length < 2) {
+    comparativePnlList.innerHTML = '<div class="analytics-empty">Need 2+ markets to compare.</div>';
+    return;
+  }
+  
+  const comparison = calculateComparativePayoffs(markets);
+  if (!comparison) {
+    return;
+  }
+  
+  const card = document.createElement("div");
+  card.className = "comparative-card";
+  
+  let comparisonRows = "";
+  for (const analysis of comparison.markets) {
+    const ranking = comparison.sortedByRiskReward.indexOf(analysis) + 1;
+    const rankingEmoji = ranking === 1 ? '🥇' : ranking === 2 ? '🥈' : ranking === 3 ? '🥉' : '';
+    
+    comparisonRows += `
+      <div class="comparative-row-compact">
+        <div class="comparative-market-compact">
+          <span class="comparative-rank">${rankingEmoji}</span>
+          <span class="comparative-title">${analysis.title.length > 35 ? analysis.title.substring(0, 35) + '...' : analysis.title}</span>
+        </div>
+        <div class="comparative-metrics-compact">
+          <span class="comparative-value">R/R: ${analysis.riskRewardRatio.toFixed(2)}</span>
+          <span class="comparative-value">ROI: ${analysis.roiIfWins.toFixed(1)}%</span>
+        </div>
+      </div>
+    `;
+  }
+  
+  card.innerHTML = `
+    <div class="comparative-table-compact">
+      ${comparisonRows}
+    </div>
+  `;
+  
+  comparativePnlList.appendChild(card);
 }
 
 function applySnapshot(snapshot) {
@@ -1230,6 +1346,7 @@ function applySnapshot(snapshot) {
   renderMarkets();
   renderMarketAnalytics();
   renderPnLDashboard();
+  renderComparativePayoff();
 }
 
 port.onMessage.addListener((message) => {
@@ -1244,6 +1361,7 @@ port.onMessage.addListener((message) => {
     renderMarkets();
     renderMarketAnalytics();
     renderPnLDashboard();
+    renderComparativePayoff();
   }
   if (message.type === "markets_refresh") {
     state.markets = message.payload.slice(0, 4);
@@ -1255,12 +1373,14 @@ port.onMessage.addListener((message) => {
     renderMarkets();
     renderMarketAnalytics();
     renderPnLDashboard();
+    renderComparativePayoff();
   }
   if (message.type === "nfl_insight") {
     state.nfl = message.payload;
     renderNflInsight();
     renderMarketAnalytics(); // Re-analyze when NFL insight updates
     renderPnLDashboard();
+    renderComparativePayoff();
   }
   if (message.type === "context") {
     renderContext(message.payload);
